@@ -86,16 +86,23 @@ def get_slack_user_info(slack_user_id):
         from slack_sdk import WebClient
         client = WebClient(token=os.environ.get('SLACK_BOT_TOKEN'))
         
+        print(f"DEBUG: Getting Slack user info for user_id: {slack_user_id}")
         response = client.users_info(user=slack_user_id)
+        print(f"DEBUG: Slack API response: {response}")
+        
         if response['ok']:
             user = response['user']
             profile = user.get('profile', {})
-            return {
+            user_info = {
                 'id': user['id'],
                 'name': user.get('real_name', user.get('name', '')),
                 'email': profile.get('email', ''),
                 'display_name': profile.get('display_name', user.get('real_name', ''))
             }
+            print(f"DEBUG: Processed user info: {user_info}")
+            return user_info
+        else:
+            print(f"DEBUG: Slack API error: {response.get('error', 'Unknown error')}")
     except Exception as e:
         print(f"Error getting Slack user info: {e}")
     
