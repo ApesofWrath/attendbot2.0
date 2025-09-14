@@ -8,25 +8,46 @@ bot = AttendanceSlackBot()
 @app.route('/slack/events', methods=['POST'])
 def slack_events():
     """Handle Slack events"""
-    data = request.get_json()
-    
-    # Handle URL verification
-    if data.get('type') == 'url_verification':
-        return data.get('challenge')
-    
-    # Handle event callbacks
-    if data.get('type') == 'event_callback':
-        event = data.get('event', {})
+    try:
+        # Log the incoming request for debugging
+        print(f"Slack events endpoint called with method: {request.method}")
+        print(f"Content-Type: {request.content_type}")
         
-        # Handle app mentions
-        if event.get('type') == 'app_mention':
-            handle_app_mention(event)
+        # Handle both JSON and form data
+        if request.is_json:
+            data = request.get_json()
+        else:
+            data = request.form.to_dict()
         
-        # Handle slash commands
-        elif event.get('type') == 'slash_command':
-            handle_slash_command(event)
-    
-    return jsonify({'status': 'ok'})
+        print(f"Received data: {data}")
+        
+        # Handle URL verification challenge
+        if data and data.get('type') == 'url_verification':
+            challenge = data.get('challenge')
+            print(f"URL verification challenge: {challenge}")
+            if challenge:
+                # Return the challenge value as plain text, not JSON
+                return challenge, 200, {'Content-Type': 'text/plain'}
+            else:
+                return 'No challenge provided', 400
+        
+        # Handle event callbacks
+        if data and data.get('type') == 'event_callback':
+            event = data.get('event', {})
+            
+            # Handle app mentions
+            if event.get('type') == 'app_mention':
+                handle_app_mention(event)
+            
+            # Handle slash commands
+            elif event.get('type') == 'slash_command':
+                handle_slash_command(event)
+        
+        return jsonify({'status': 'ok'}), 200
+        
+    except Exception as e:
+        print(f"Error in slack_events: {e}")
+        return jsonify({'error': 'Internal server error'}), 500
 
 @app.route('/slack/commands', methods=['POST'])
 def slack_commands():
