@@ -105,14 +105,14 @@ class AttendanceSlackBot:
             return self._send_message(channel_id, "❌ Admin privileges required.")
         
         try:
-            # Parse text: "YYYY-MM-DD HH:MM-HH:MM Description"
+            # Parse text: "YYYY-MM-DD HH:MM-HH:MM Description with spaces"
             parts = text.strip().split()
             if len(parts) < 3:
                 return self._send_message(channel_id, "❌ Format: `/add_meeting YYYY-MM-DD HH:MM-HH:MM Description`")
             
             date_str = parts[0]
             time_str = parts[1]
-            description = " ".join(parts[2:])
+            description = " ".join(parts[2:])  # Join remaining parts to handle spaces in description
             
             # Parse date and time
             date_obj = datetime.strptime(date_str, "%Y-%m-%d")
@@ -125,6 +125,7 @@ class AttendanceSlackBot:
                 start_time=start_time,
                 end_time=end_time,
                 description=description,
+                meeting_type='regular',
                 created_by=user.id
             )
             
@@ -368,14 +369,15 @@ class AttendanceSlackBot:
             return self._send_message(channel_id, "❌ Admin privileges required.")
         
         try:
-            # Parse text: "name YYYY-MM-DD YYYY-MM-DD"
+            # Parse text: "name with spaces YYYY-MM-DD YYYY-MM-DD"
             parts = text.strip().split()
-            if len(parts) != 3:
+            if len(parts) < 3:
                 return self._send_message(channel_id, "❌ Format: `/create_period name YYYY-MM-DD YYYY-MM-DD`")
             
-            name = parts[0]
-            start_date = datetime.strptime(parts[1], "%Y-%m-%d")
-            end_date = datetime.strptime(parts[2], "%Y-%m-%d")
+            # Last two parts are dates, everything else is the name
+            name = " ".join(parts[:-2])  # Join all parts except last two to handle spaces in name
+            start_date = datetime.strptime(parts[-2], "%Y-%m-%d")
+            end_date = datetime.strptime(parts[-1], "%Y-%m-%d")
             
             # Create reporting period
             period = ReportingPeriod(
@@ -388,7 +390,7 @@ class AttendanceSlackBot:
             db.session.add(period)
             db.session.commit()
             
-            return self._send_message(channel_id, f"✅ Reporting period created: {name} ({parts[1]} to {parts[2]})")
+            return self._send_message(channel_id, f"✅ Reporting period created: {name} ({parts[-2]} to {parts[-1]})")
             
         except Exception as e:
             return self._send_message(channel_id, f"❌ Error creating period: {str(e)}")

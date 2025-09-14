@@ -224,6 +224,137 @@ def admin_dashboard():
     now = datetime.utcnow()
     return render_template('admin_dashboard.html', periods=periods, users=users, now=now)
 
+@app.route('/admin/period/<int:period_id>/delete', methods=['POST'])
+@login_required
+def delete_period(period_id):
+    if not current_user.is_admin:
+        flash('Access denied. Admin privileges required.', 'error')
+        return redirect(url_for('admin_dashboard'))
+    
+    period = ReportingPeriod.query.get_or_404(period_id)
+    
+    try:
+        db.session.delete(period)
+        db.session.commit()
+        flash(f'Reporting period "{period.name}" has been deleted successfully.', 'success')
+    except Exception as e:
+        db.session.rollback()
+        flash(f'Error deleting reporting period: {str(e)}', 'error')
+    
+    return redirect(url_for('admin_dashboard'))
+
+@app.route('/admin/add_meeting', methods=['POST'])
+@login_required
+def add_meeting_admin():
+    if not current_user.is_admin:
+        return jsonify({'error': 'Access denied. Admin privileges required.'}), 403
+    
+    try:
+        data = request.get_json()
+        date_str = data.get('date')
+        start_time_str = data.get('start_time')
+        end_time_str = data.get('end_time')
+        description = data.get('description', '')
+        
+        if not all([date_str, start_time_str, end_time_str]):
+            return jsonify({'error': 'Missing required fields'}), 400
+        
+        # Parse date and time
+        start_time = datetime.strptime(f"{date_str} {start_time_str}", "%Y-%m-%d %H:%M")
+        end_time = datetime.strptime(f"{date_str} {end_time_str}", "%Y-%m-%d %H:%M")
+        
+        # Create meeting hour
+        meeting_hour = MeetingHour(
+            start_time=start_time,
+            end_time=end_time,
+            description=description,
+            meeting_type='regular',
+            created_by=current_user.id
+        )
+        
+        db.session.add(meeting_hour)
+        db.session.commit()
+        
+        return jsonify({'success': True, 'message': f'Meeting added: {description} on {date_str} from {start_time_str} to {end_time_str}'})
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': f'Error adding meeting: {str(e)}'}), 500
+
+@app.route('/admin/add_outreach', methods=['POST'])
+@login_required
+def add_outreach_admin():
+    if not current_user.is_admin:
+        return jsonify({'error': 'Access denied. Admin privileges required.'}), 403
+    
+    try:
+        data = request.get_json()
+        date_str = data.get('date')
+        start_time_str = data.get('start_time')
+        end_time_str = data.get('end_time')
+        description = data.get('description', '')
+        
+        if not all([date_str, start_time_str, end_time_str]):
+            return jsonify({'error': 'Missing required fields'}), 400
+        
+        # Parse date and time
+        start_time = datetime.strptime(f"{date_str} {start_time_str}", "%Y-%m-%d %H:%M")
+        end_time = datetime.strptime(f"{date_str} {end_time_str}", "%Y-%m-%d %H:%M")
+        
+        # Create outreach event
+        outreach_event = MeetingHour(
+            start_time=start_time,
+            end_time=end_time,
+            description=description,
+            meeting_type='outreach',
+            created_by=current_user.id
+        )
+        
+        db.session.add(outreach_event)
+        db.session.commit()
+        
+        return jsonify({'success': True, 'message': f'Outreach event added: {description} on {date_str} from {start_time_str} to {end_time_str}'})
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': f'Error adding outreach event: {str(e)}'}), 500
+
+@app.route('/admin/create_period', methods=['POST'])
+@login_required
+def create_period_admin():
+    if not current_user.is_admin:
+        return jsonify({'error': 'Access denied. Admin privileges required.'}), 403
+    
+    try:
+        data = request.get_json()
+        name = data.get('name', '').strip()
+        start_date_str = data.get('start_date')
+        end_date_str = data.get('end_date')
+        
+        if not all([name, start_date_str, end_date_str]):
+            return jsonify({'error': 'Missing required fields'}), 400
+        
+        # Parse dates
+        start_date = datetime.strptime(start_date_str, "%Y-%m-%d")
+        end_date = datetime.strptime(end_date_str, "%Y-%m-%d")
+        
+        # Create reporting period
+        period = ReportingPeriod(
+            name=name,
+            start_date=start_date,
+            end_date=end_date,
+            created_by=current_user.id
+        )
+        
+        db.session.add(period)
+        db.session.commit()
+        
+        return jsonify({'success': True, 'message': f'Reporting period created: {name} ({start_date_str} to {end_date_str})'})
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': f'Error creating period: {str(e)}'}), 500
+
 @app.route('/admin/users')
 @login_required
 def admin_users():

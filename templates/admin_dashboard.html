@@ -100,6 +100,9 @@
                                     <a href="{{ url_for('attendance_report', period_id=period.id) }}" class="btn btn-sm btn-outline-primary">
                                         <i class="fas fa-chart-line"></i> View Report
                                     </a>
+                                    <button class="btn btn-sm btn-outline-danger" onclick="deletePeriod({{ period.id }}, '{{ period.name }}')">
+                                        <i class="fas fa-trash"></i> Delete
+                                    </button>
                                 </td>
                             </tr>
                             {% endfor %}
@@ -272,9 +275,6 @@
 {% block scripts %}
 <script>
 function addMeeting() {
-    const form = document.getElementById('addMeetingForm');
-    const formData = new FormData(form);
-    
     const data = {
         date: document.getElementById('meetingDate').value,
         start_time: document.getElementById('startTime').value,
@@ -282,18 +282,40 @@ function addMeeting() {
         description: document.getElementById('meetingDescription').value
     };
     
-    // Send to Slack bot command
-    alert('Use the Slack command: /add_meeting ' + data.date + ' ' + data.start_time + '-' + data.end_time + ' ' + data.description);
+    if (!data.date || !data.start_time || !data.end_time) {
+        alert('Please fill in all required fields.');
+        return;
+    }
     
-    // Close modal
-    const modal = bootstrap.Modal.getInstance(document.getElementById('addMeetingModal'));
-    modal.hide();
+    fetch('/admin/add_meeting', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(data)
+    })
+    .then(response => response.json())
+    .then(result => {
+        if (result.success) {
+            alert(result.message);
+            // Clear form
+            document.getElementById('addMeetingForm').reset();
+            // Close modal
+            const modal = bootstrap.Modal.getInstance(document.getElementById('addMeetingModal'));
+            modal.hide();
+            // Reload page to show new meeting
+            location.reload();
+        } else {
+            alert('Error: ' + result.error);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Error adding meeting. Please try again.');
+    });
 }
 
 function addOutreach() {
-    const form = document.getElementById('addOutreachForm');
-    const formData = new FormData(form);
-    
     const data = {
         date: document.getElementById('outreachDate').value,
         start_time: document.getElementById('outreachStartTime').value,
@@ -301,48 +323,121 @@ function addOutreach() {
         description: document.getElementById('outreachDescription').value
     };
     
-    // Send to Slack bot command
-    alert('Use the Slack command: /add_outreach ' + data.date + ' ' + data.start_time + '-' + data.end_time + ' ' + data.description);
+    if (!data.date || !data.start_time || !data.end_time) {
+        alert('Please fill in all required fields.');
+        return;
+    }
     
-    // Close modal
-    const modal = bootstrap.Modal.getInstance(document.getElementById('addOutreachModal'));
-    modal.hide();
+    fetch('/admin/add_outreach', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(data)
+    })
+    .then(response => response.json())
+    .then(result => {
+        if (result.success) {
+            alert(result.message);
+            // Clear form
+            document.getElementById('addOutreachForm').reset();
+            // Close modal
+            const modal = bootstrap.Modal.getInstance(document.getElementById('addOutreachModal'));
+            modal.hide();
+            // Reload page to show new outreach event
+            location.reload();
+        } else {
+            alert('Error: ' + result.error);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Error adding outreach event. Please try again.');
+    });
 }
 
 function createPeriod() {
-    const form = document.getElementById('createPeriodForm');
-    const formData = new FormData(form);
-    
     const data = {
-        name: document.getElementById('periodName').value,
+        name: document.getElementById('periodName').value.trim(),
         start_date: document.getElementById('periodStartDate').value,
         end_date: document.getElementById('periodEndDate').value
     };
     
-    // Send to Slack bot command
-    alert('Use the Slack command: /create_period ' + data.name + ' ' + data.start_date + ' ' + data.end_date);
+    if (!data.name || !data.start_date || !data.end_date) {
+        alert('Please fill in all required fields.');
+        return;
+    }
     
-    // Close modal
-    const modal = bootstrap.Modal.getInstance(document.getElementById('createPeriodModal'));
-    modal.hide();
+    fetch('/admin/create_period', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(data)
+    })
+    .then(response => response.json())
+    .then(result => {
+        if (result.success) {
+            alert(result.message);
+            // Clear form
+            document.getElementById('createPeriodForm').reset();
+            // Close modal
+            const modal = bootstrap.Modal.getInstance(document.getElementById('createPeriodModal'));
+            modal.hide();
+            // Reload page to show new period
+            location.reload();
+        } else {
+            alert('Error: ' + result.error);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Error creating period. Please try again.');
+    });
 }
 
 function excuseUser() {
-    const form = document.getElementById('excuseForm');
-    const formData = new FormData(form);
-    
     const data = {
         user_id: document.getElementById('excuseUserId').value,
         meeting_id: document.getElementById('excuseMeetingId').value,
-        reason: document.getElementById('excuseReason').value
+        reason: document.getElementById('excuseReason').value.trim()
     };
     
-    // Send to Slack bot command
+    if (!data.user_id || !data.meeting_id || !data.reason) {
+        alert('Please fill in all required fields.');
+        return;
+    }
+    
+    // For now, show Slack command since this is complex to implement in web interface
     alert('Use the Slack command: /excuse ' + data.user_id + ' ' + data.meeting_id + ' ' + data.reason);
     
+    // Clear form
+    document.getElementById('excuseForm').reset();
     // Close modal
     const modal = bootstrap.Modal.getInstance(document.getElementById('excuseModal'));
     modal.hide();
+}
+
+function deletePeriod(periodId, periodName) {
+    if (confirm(`Are you sure you want to delete the reporting period "${periodName}"? This action cannot be undone.`)) {
+        // Create a form to submit the delete request
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = `/admin/period/${periodId}/delete`;
+        
+        // Add CSRF token if needed (you might need to add this)
+        // const csrfToken = document.querySelector('meta[name="csrf-token"]');
+        // if (csrfToken) {
+        //     const csrfInput = document.createElement('input');
+        //     csrfInput.type = 'hidden';
+        //     csrfInput.name = 'csrf_token';
+        //     csrfInput.value = csrfToken.getAttribute('content');
+        //     form.appendChild(csrfInput);
+        // }
+        
+        document.body.appendChild(form);
+        form.submit();
+    }
 }
 </script>
 {% endblock %}
