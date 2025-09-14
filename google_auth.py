@@ -3,12 +3,16 @@ Google OAuth configuration and utilities
 """
 
 import os
+import logging
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 import json
 import urllib3
+
+# Configure logging
+logger = logging.getLogger(__name__)
 
 # OAuth 2.0 scopes
 SCOPES = [
@@ -86,9 +90,9 @@ def get_slack_user_info(slack_user_id):
         from slack_sdk import WebClient
         client = WebClient(token=os.environ.get('SLACK_BOT_TOKEN'))
         
-        print(f"DEBUG: Getting Slack user info for user_id: {slack_user_id}")
+        logger.info(f"Getting Slack user info for user_id: {slack_user_id}")
         response = client.users_info(user=slack_user_id)
-        print(f"DEBUG: Slack API response: {response}")
+        logger.info(f"Slack API response: {response}")
         
         if response['ok']:
             user = response['user']
@@ -99,11 +103,11 @@ def get_slack_user_info(slack_user_id):
                 'email': profile.get('email', ''),
                 'display_name': profile.get('display_name', user.get('real_name', ''))
             }
-            print(f"DEBUG: Processed user info: {user_info}")
+            logger.info(f"Processed user info: {user_info}")
             return user_info
         else:
-            print(f"DEBUG: Slack API error: {response.get('error', 'Unknown error')}")
+            logger.error(f"Slack API error: {response.get('error', 'Unknown error')}")
     except Exception as e:
-        print(f"Error getting Slack user info: {e}")
+        logger.error(f"Error getting Slack user info: {e}")
     
     return None

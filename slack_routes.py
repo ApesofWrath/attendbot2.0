@@ -2,6 +2,10 @@ from flask import request, jsonify
 from app import app
 from slack_bot import AttendanceSlackBot
 import json
+import logging
+
+# Configure logging
+logger = logging.getLogger(__name__)
 
 bot = AttendanceSlackBot()
 
@@ -10,8 +14,8 @@ def slack_events():
     """Handle Slack events"""
     try:
         # Log the incoming request for debugging
-        print(f"Slack events endpoint called with method: {request.method}")
-        print(f"Content-Type: {request.content_type}")
+        logger.info(f"Slack events endpoint called with method: {request.method}")
+        logger.info(f"Content-Type: {request.content_type}")
         
         # Handle both JSON and form data
         if request.is_json:
@@ -19,12 +23,12 @@ def slack_events():
         else:
             data = request.form.to_dict()
         
-        print(f"Received data: {data}")
+        logger.info(f"Received data: {data}")
         
         # Handle URL verification challenge
         if data and data.get('type') == 'url_verification':
             challenge = data.get('challenge')
-            print(f"URL verification challenge: {challenge}")
+            logger.info(f"URL verification challenge: {challenge}")
             if challenge:
                 # Return the challenge value as plain text, not JSON
                 return challenge, 200, {'Content-Type': 'text/plain'}
@@ -46,7 +50,7 @@ def slack_events():
         return jsonify({'status': 'ok'}), 200
         
     except Exception as e:
-        print(f"Error in slack_events: {e}")
+        logger.error(f"Error in slack_events: {e}")
         return jsonify({'error': 'Internal server error'}), 500
 
 @app.route('/slack/commands', methods=['POST'])

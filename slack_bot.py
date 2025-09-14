@@ -1,11 +1,16 @@
 import os
 import json
+import logging
 from datetime import datetime, timedelta
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 from app import app, db, User, MeetingHour, AttendanceLog, ReportingPeriod, Excuse
 from google_auth import get_slack_user_info
 import pytz
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 class AttendanceSlackBot:
     def __init__(self):
@@ -19,22 +24,22 @@ class AttendanceSlackBot:
             
             if not user:
                 # Try to get user info from Slack and create user automatically
-                print(f"DEBUG: User not found in database for slack_user_id: {user_id}")
+                logger.info(f"User not found in database for slack_user_id: {user_id}")
                 slack_user_info = get_slack_user_info(user_id)
-                print(f"DEBUG: Slack user info retrieved: {slack_user_info}")
+                logger.info(f"Slack user info retrieved: {slack_user_info}")
                 
                 if slack_user_info and slack_user_info.get('email'):
                     # Check if user exists with this email but different slack_user_id
                     existing_user = User.query.filter_by(email=slack_user_info['email']).first()
                     if existing_user:
-                        print(f"DEBUG: Found existing user with email {slack_user_info['email']}, updating slack_user_id")
+                        logger.info(f"Found existing user with email {slack_user_info['email']}, updating slack_user_id")
                         existing_user.slack_user_id = user_id
                         db.session.commit()
                         user = existing_user
                         self._send_message(channel_id, f"✅ Your Slack account has been linked! You can now use commands.")
                     else:
                         # Create user automatically
-                        print(f"DEBUG: Creating new user with email {slack_user_info['email']}")
+                        logger.info(f"Creating new user with email {slack_user_info['email']}")
                         user = User(
                             slack_user_id=user_id,
                             email=slack_user_info['email'],
@@ -45,7 +50,7 @@ class AttendanceSlackBot:
                         db.session.commit()
                         self._send_message(channel_id, f"✅ Welcome! Your account has been created. You can now log attendance.")
                 else:
-                    print(f"DEBUG: Failed to get slack user info or no email found")
+                    logger.error(f"Failed to get slack user info or no email found")
                     return self._send_message(channel_id, "❌ Unable to create account. Please contact an admin or log in to the web app first.")
             
             if command == "/add_meeting":
