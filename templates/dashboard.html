@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Attendance Tracker{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <h2><i class="fas fa-tachometer-alt"></i> Dashboard</h2>
+        <p class="text-muted">Welcome back, {{ current_user.username }}!</p>
+    </div>
+</div>
+
+{% if current_period %}
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="fas fa-calendar"></i> Current Reporting Period: {{ current_period.name }}</h5>
+                <small class="text-muted">{{ current_period.start_date.strftime('%B %d, %Y') }} - {{ current_period.end_date.strftime('%B %d, %Y') }}</small>
+            </div>
+            <div class="card-body">
+                {% if user_attendance %}
+                <!-- Regular Meetings Section -->
+                <div class="row mb-4">
+                    <div class="col-12">
+                        <h5><i class="fas fa-users"></i> Regular Meetings</h5>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="text-center">
+                            <h3 class="text-primary">{{ user_attendance.regular_meetings.attendance_percentage }}%</h3>
+                            <p class="text-muted">Attendance Rate</p>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="text-center">
+                            <h3 class="text-info">{{ user_attendance.regular_meetings.attended }}</h3>
+                            <p class="text-muted">Meetings Attended</p>
+                            {% if user_attendance.regular_meetings.partial_hours > 0 %}
+                                <small class="text-muted">{{ user_attendance.regular_meetings.partial_hours }}h partial</small>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="text-center">
+                            <h3 class="text-warning">{{ user_attendance.regular_meetings.excused }}</h3>
+                            <p class="text-muted">Excused Meetings</p>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="text-center">
+                            <h3 class="text-secondary">{{ user_attendance.regular_meetings.total }}</h3>
+                            <p class="text-muted">Total Meetings</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Outreach Hours Section -->
+                <div class="row mb-4">
+                    <div class="col-12">
+                        <h5><i class="fas fa-handshake"></i> Outreach Hours</h5>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="text-center">
+                            <h3 class="text-success">{{ user_attendance.outreach_hours.attended_hours }}h</h3>
+                            <p class="text-muted">Hours Attended</p>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="text-center">
+                            <h3 class="text-secondary">{{ user_attendance.outreach_hours.total_hours }}h</h3>
+                            <p class="text-muted">Total Available Outreach</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <hr>
+                
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6><i class="fas fa-users"></i> Regular Meetings</h6>
+                        <div class="d-flex align-items-center mb-2">
+                            <i class="fas fa-check-circle fa-2x me-3 {% if user_attendance.regular_meetings.meets_team_requirement %}attendance-good{% else %}attendance-danger{% endif %}"></i>
+                            <div>
+                                <h6 class="mb-1">Team Requirement (60%)</h6>
+                                <p class="mb-0 text-muted">{% if user_attendance.regular_meetings.meets_team_requirement %}✅ Meets requirement{% else %}❌ Below requirement{% endif %}</p>
+                            </div>
+                        </div>
+                        <div class="d-flex align-items-center">
+                            <i class="fas fa-plane fa-2x me-3 {% if user_attendance.regular_meetings.meets_travel_requirement %}attendance-good{% else %}attendance-danger{% endif %}"></i>
+                            <div>
+                                <h6 class="mb-1">Travel Requirement (75%)</h6>
+                                <p class="mb-0 text-muted">{% if user_attendance.regular_meetings.meets_travel_requirement %}✅ Meets requirement{% else %}❌ Below requirement{% endif %}</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <h6><i class="fas fa-handshake"></i> Outreach Hours</h6>
+                        <div class="d-flex align-items-center mb-2">
+                            <i class="fas fa-check-circle fa-2x me-3 {% if user_attendance.outreach_hours.meets_team_requirement %}attendance-good{% else %}attendance-danger{% endif %}"></i>
+                            <div>
+                                <h6 class="mb-1">Team Requirement (12h)</h6>
+                                <p class="mb-0 text-muted">{% if user_attendance.outreach_hours.meets_team_requirement %}✅ Meets requirement{% else %}❌ Below requirement{% endif %}</p>
+                            </div>
+                        </div>
+                        <div class="d-flex align-items-center">
+                            <i class="fas fa-plane fa-2x me-3 {% if user_attendance.outreach_hours.meets_travel_requirement %}attendance-good{% else %}attendance-danger{% endif %}"></i>
+                            <div>
+                                <h6 class="mb-1">Travel Requirement (18h)</h6>
+                                <p class="mb-0 text-muted">{% if user_attendance.outreach_hours.meets_travel_requirement %}✅ Meets requirement{% else %}❌ Below requirement{% endif %}</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% else %}
+                <p class="text-muted">No attendance data available for the current period.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% else %}
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="alert alert-warning">
+            <i class="fas fa-exclamation-triangle"></i>
+            No active reporting period. Contact an admin to create one.
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="fas fa-info-circle"></i> How to Use</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6><i class="fas fa-comments"></i> Slack Commands</h6>
+                        <ul class="list-unstyled">
+                            <li><code>/my_attendance</code> - View your attendance</li>
+                            <li><code>/log_attendance meeting_id [notes]</code> - Log attendance</li>
+                            <li><code>/help</code> - Show all commands</li>
+                        </ul>
+                    </div>
+                    <div class="col-md-6">
+                        <h6><i class="fas fa-globe"></i> Web Interface</h6>
+                        <ul class="list-unstyled">
+                            <li>View detailed reports</li>
+                            <li>Access admin functions</li>
+                            <li>Export attendance data</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

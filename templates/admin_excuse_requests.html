@@ -1,0 +1,217 @@
+{% extends "base.html" %}
+
+{% block title %}Excuse Requests - Admin{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h2>📋 Excuse Requests</h2>
+                <a href="{{ url_for('admin_dashboard') }}" class="btn btn-outline-secondary">
+                    <i class="fas fa-arrow-left"></i> Back to Admin Dashboard
+                </a>
+            </div>
+
+            <!-- Pending Requests -->
+            <div class="card mb-4">
+                <div class="card-header bg-warning text-dark">
+                    <h5 class="mb-0">
+                        <i class="fas fa-clock"></i> Pending Requests ({{ pending_requests|length }})
+                    </h5>
+                </div>
+                <div class="card-body">
+                    {% if pending_requests %}
+                        <div class="table-responsive">
+                            <table class="table table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>User</th>
+                                        <th>Meeting</th>
+                                        <th>Date & Time</th>
+                                        <th>Reason</th>
+                                        <th>Requested</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for request in pending_requests %}
+                                    <tr>
+                                        <td>
+                                            <strong>{{ request.user.username }}</strong><br>
+                                            <small class="text-muted">{{ request.user.email }}</small>
+                                        </td>
+                                        <td>
+                                            <strong>{{ request.meeting_hour.description }}</strong><br>
+                                            <small class="text-muted">{{ request.meeting_hour.meeting_type.title() }}</small>
+                                        </td>
+                                        <td>
+                                            {{ request.meeting_hour.start_time.strftime('%Y-%m-%d') }}<br>
+                                            <small class="text-muted">{{ request.meeting_hour.start_time.strftime('%H:%M') }} - {{ request.meeting_hour.end_time.strftime('%H:%M') }}</small>
+                                        </td>
+                                        <td>
+                                            <span class="text-break">{{ request.reason }}</span>
+                                        </td>
+                                        <td>
+                                            {{ request.requested_at.strftime('%Y-%m-%d %H:%M') }}<br>
+                                            <small class="text-muted">{{ request.requested_at.strftime('%A') }}</small>
+                                        </td>
+                                        <td>
+                                            <div class="btn-group-vertical" role="group">
+                                                <button type="button" class="btn btn-success btn-sm mb-1" data-bs-toggle="modal" data-bs-target="#approveModal{{ request.id }}">
+                                                    <i class="fas fa-check"></i> Approve
+                                                </button>
+                                                <button type="button" class="btn btn-danger btn-sm" data-bs-toggle="modal" data-bs-target="#denyModal{{ request.id }}">
+                                                    <i class="fas fa-times"></i> Deny
+                                                </button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% else %}
+                        <div class="text-center py-4">
+                            <i class="fas fa-check-circle fa-3x text-success mb-3"></i>
+                            <h5>No Pending Requests</h5>
+                            <p class="text-muted">All excuse requests have been processed.</p>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Recent Processed Requests -->
+            <div class="card">
+                <div class="card-header bg-light">
+                    <h5 class="mb-0">
+                        <i class="fas fa-history"></i> Recent Processed Requests
+                    </h5>
+                </div>
+                <div class="card-body">
+                    {% if recent_requests %}
+                        <div class="table-responsive">
+                            <table class="table table-sm">
+                                <thead>
+                                    <tr>
+                                        <th>User</th>
+                                        <th>Meeting</th>
+                                        <th>Date</th>
+                                        <th>Status</th>
+                                        <th>Reviewed By</th>
+                                        <th>Reviewed At</th>
+                                        <th>Admin Notes</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for request in recent_requests %}
+                                    <tr>
+                                        <td>{{ request.user.username }}</td>
+                                        <td>{{ request.meeting_hour.description }}</td>
+                                        <td>{{ request.meeting_hour.start_time.strftime('%Y-%m-%d') }}</td>
+                                        <td>
+                                            {% if request.status == 'approved' %}
+                                                <span class="badge bg-success">Approved</span>
+                                            {% else %}
+                                                <span class="badge bg-danger">Denied</span>
+                                            {% endif %}
+                                        </td>
+                                        <td>{{ request.reviewer.username if request.reviewer else 'N/A' }}</td>
+                                        <td>{{ request.reviewed_at.strftime('%Y-%m-%d %H:%M') if request.reviewed_at else 'N/A' }}</td>
+                                        <td>
+                                            {% if request.admin_notes %}
+                                                <span class="text-break">{{ request.admin_notes }}</span>
+                                            {% else %}
+                                                <span class="text-muted">-</span>
+                                            {% endif %}
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% else %}
+                        <div class="text-center py-3">
+                            <i class="fas fa-inbox fa-2x text-muted mb-2"></i>
+                            <p class="text-muted">No processed requests yet.</p>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Approve Modals -->
+{% for request in pending_requests %}
+<div class="modal fade" id="approveModal{{ request.id }}" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title">
+                    <i class="fas fa-check"></i> Approve Excuse Request
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST" action="{{ url_for('approve_excuse_request', request_id=request.id) }}">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <strong>User:</strong> {{ request.user.username }}<br>
+                        <strong>Meeting:</strong> {{ request.meeting_hour.description }}<br>
+                        <strong>Date:</strong> {{ request.meeting_hour.start_time.strftime('%Y-%m-%d %H:%M') }}<br>
+                        <strong>Reason:</strong> {{ request.reason }}
+                    </div>
+                    <div class="mb-3">
+                        <label for="admin_notes_approve{{ request.id }}" class="form-label">Admin Notes (Optional)</label>
+                        <textarea class="form-control" id="admin_notes_approve{{ request.id }}" name="admin_notes" rows="3" placeholder="Add any additional notes..."></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-success">
+                        <i class="fas fa-check"></i> Approve Request
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endfor %}
+
+<!-- Deny Modals -->
+{% for request in pending_requests %}
+<div class="modal fade" id="denyModal{{ request.id }}" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title">
+                    <i class="fas fa-times"></i> Deny Excuse Request
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST" action="{{ url_for('deny_excuse_request', request_id=request.id) }}">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <strong>User:</strong> {{ request.user.username }}<br>
+                        <strong>Meeting:</strong> {{ request.meeting_hour.description }}<br>
+                        <strong>Date:</strong> {{ request.meeting_hour.start_time.strftime('%Y-%m-%d %H:%M') }}<br>
+                        <strong>Reason:</strong> {{ request.reason }}
+                    </div>
+                    <div class="mb-3">
+                        <label for="admin_notes_deny{{ request.id }}" class="form-label">Reason for Denial</label>
+                        <textarea class="form-control" id="admin_notes_deny{{ request.id }}" name="admin_notes" rows="3" placeholder="Please explain why this request is being denied..." required></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-danger">
+                        <i class="fas fa-times"></i> Deny Request
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endfor %}
+
+{% endblock %}

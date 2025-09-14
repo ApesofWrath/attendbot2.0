@@ -1,0 +1,183 @@
+{% extends "base.html" %}
+
+{% block title %}Attendance Report - {{ period.name }}{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="d-flex justify-content-between align-items-center">
+            <h2><i class="fas fa-chart-line"></i> Attendance Report</h2>
+            <a href="{{ url_for('admin_dashboard') }}" class="btn btn-outline-secondary">
+                <i class="fas fa-arrow-left"></i> Back to Admin
+            </a>
+        </div>
+        <h4 class="text-muted">{{ period.name }}</h4>
+        <p class="text-muted">{{ period.start_date.strftime('%B %d, %Y') }} - {{ period.end_date.strftime('%B %d, %Y') }}</p>
+    </div>
+</div>
+
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="fas fa-users"></i> Team Attendance Summary</h5>
+            </div>
+            <div class="card-body">
+                {% if report_data %}
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>User</th>
+                                <th>Regular Attendance %</th>
+                                <th>Regular Attended</th>
+                                <th>Partial Hours</th>
+                                <th>Regular Excused</th>
+                                <th>Regular Total</th>
+                                <th>Outreach Hours</th>
+                                <th>Outreach Attended</th>
+                                <th>Team (60%/12h)</th>
+                                <th>Travel (75%/18h)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for user_data in report_data %}
+                            <tr>
+                                <td>
+                                    <strong>{{ user_data.user.username }}</strong>
+                                    {% if user_data.user.is_admin %}
+                                        <span class="badge bg-primary ms-1">Admin</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <span class="badge {% if user_data.regular_meetings.attendance_percentage >= 75 %}bg-success{% elif user_data.regular_meetings.attendance_percentage >= 60 %}bg-warning{% else %}bg-danger{% endif %}">
+                                        {{ user_data.regular_meetings.attendance_percentage }}%
+                                    </span>
+                                </td>
+                                <td>{{ user_data.regular_meetings.attended }}</td>
+                                <td>
+                                    {% if user_data.regular_meetings.partial_hours > 0 %}
+                                        <span class="badge bg-info">{{ user_data.regular_meetings.partial_hours }}h</span>
+                                    {% else %}
+                                        <span class="text-muted">-</span>
+                                    {% endif %}
+                                </td>
+                                <td>{{ user_data.regular_meetings.excused }}</td>
+                                <td>{{ user_data.regular_meetings.total }}</td>
+                                <td>
+                                    <span class="badge {% if user_data.outreach_hours.attended_hours >= 18 %}bg-success{% elif user_data.outreach_hours.attended_hours >= 12 %}bg-warning{% else %}bg-danger{% endif %}">
+                                        {{ user_data.outreach_hours.attended_hours }}h
+                                    </span>
+                                </td>
+                                <td>{{ user_data.outreach_hours.attended_hours }}h / {{ user_data.outreach_hours.total_hours }}h</td>
+                                <td>
+                                    <div class="d-flex flex-column">
+                                        <small class="text-muted">Regular: {% if user_data.regular_meetings.meets_team_requirement %}<i class="fas fa-check-circle text-success"></i>{% else %}<i class="fas fa-times-circle text-danger"></i>{% endif %}</small>
+                                        <small class="text-muted">Outreach: {% if user_data.outreach_hours.meets_team_requirement %}<i class="fas fa-check-circle text-success"></i>{% else %}<i class="fas fa-times-circle text-danger"></i>{% endif %}</small>
+                                    </div>
+                                </td>
+                                <td>
+                                    <div class="d-flex flex-column">
+                                        <small class="text-muted">Regular: {% if user_data.regular_meetings.meets_travel_requirement %}<i class="fas fa-check-circle text-success"></i>{% else %}<i class="fas fa-times-circle text-danger"></i>{% endif %}</small>
+                                        <small class="text-muted">Outreach: {% if user_data.outreach_hours.meets_travel_requirement %}<i class="fas fa-check-circle text-success"></i>{% else %}<i class="fas fa-times-circle text-danger"></i>{% endif %}</small>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                
+                <div class="row mt-4">
+                    <div class="col-md-3">
+                        <div class="card bg-light">
+                            <div class="card-body text-center">
+                                <h5 class="text-success">{{ report_data|selectattr('regular_meetings.meets_team_requirement')|list|length }}</h5>
+                                <p class="text-muted">Meet Regular Team Req</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card bg-light">
+                            <div class="card-body text-center">
+                                <h5 class="text-info">{{ report_data|selectattr('regular_meetings.meets_travel_requirement')|list|length }}</h5>
+                                <p class="text-muted">Meet Regular Travel Req</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card bg-light">
+                            <div class="card-body text-center">
+                                <h5 class="text-warning">{{ report_data|selectattr('outreach_hours.meets_team_requirement')|list|length }}</h5>
+                                <p class="text-muted">Meet Outreach Team Req</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card bg-light">
+                            <div class="card-body text-center">
+                                <h5 class="text-primary">{{ report_data|length }}</h5>
+                                <p class="text-muted">Total Team Members</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% else %}
+                <p class="text-muted">No attendance data available for this period.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="fas fa-download"></i> Export Options</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <button class="btn btn-outline-primary" onclick="exportToCSV()">
+                            <i class="fas fa-file-csv"></i> Export to CSV
+                        </button>
+                    </div>
+                    <div class="col-md-6">
+                        <button class="btn btn-outline-success" onclick="exportToPDF()">
+                            <i class="fas fa-file-pdf"></i> Export to PDF
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function exportToCSV() {
+    // Create CSV content
+    let csvContent = "User,Attendance %,Attended,Excused,Total,Team Requirement,Travel Requirement\n";
+    
+    {% for user_data in report_data %}
+    csvContent += "{{ user_data.user.username }},{{ user_data.attendance_percentage }}%,{{ user_data.attended_meetings }},{{ user_data.excused_meetings }},{{ user_data.total_meetings }},{{ user_data.meets_team_requirement ? 'Yes' : 'No' }},{{ user_data.meets_travel_requirement ? 'Yes' : 'No' }}\n";
+    {% endfor %}
+    
+    // Download CSV
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'attendance_report_{{ period.name.replace(" ", "_") }}.csv';
+    a.click();
+    window.URL.revokeObjectURL(url);
+}
+
+function exportToPDF() {
+    // Simple PDF generation (in a real app, you'd use a proper PDF library)
+    alert('PDF export would be implemented with a library like jsPDF or server-side generation');
+}
+</script>
+{% endblock %}

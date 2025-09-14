@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+
+{% block title %}Home - Attendance Tracker{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8">
+        <div class="text-center mb-5">
+            <h1 class="display-4 mb-4">
+                <i class="fas fa-calendar-check text-primary"></i>
+                Attendance Tracker
+            </h1>
+            <p class="lead">Track team attendance with Slack integration and detailed reporting</p>
+        </div>
+
+        <div class="row">
+            <div class="col-md-6 mb-4">
+                <div class="card h-100">
+                    <div class="card-body text-center">
+                        <i class="fas fa-users fa-3x text-primary mb-3"></i>
+                        <h5 class="card-title">Team Management</h5>
+                        <p class="card-text">Admins can create meeting hours, reporting periods, and excuse team members from meetings.</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-md-6 mb-4">
+                <div class="card h-100">
+                    <div class="card-body text-center">
+                        <i class="fas fa-comments fa-3x text-success mb-3"></i>
+                        <h5 class="card-title">Slack Integration</h5>
+                        <p class="card-text">Log attendance and manage meetings directly through Slack commands for easy team coordination.</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-md-6 mb-4">
+                <div class="card h-100">
+                    <div class="card-body text-center">
+                        <i class="fas fa-chart-line fa-3x text-info mb-3"></i>
+                        <h5 class="card-title">Detailed Reports</h5>
+                        <p class="card-text">View comprehensive attendance reports with metrics for team and travel requirements.</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-md-6 mb-4">
+                <div class="card h-100">
+                    <div class="card-body text-center">
+                        <i class="fas fa-percentage fa-3x text-warning mb-3"></i>
+                        <h5 class="card-title">Smart Metrics</h5>
+                        <p class="card-text">Automatic calculation of attendance percentages with minimum requirements for team participation.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="text-center mt-5">
+            <a href="{{ url_for('login') }}" class="btn btn-primary btn-lg">
+                <i class="fab fa-google"></i> Sign in with Google
+            </a>
+        </div>
+    </div>
+</div>
+{% endblock %}
