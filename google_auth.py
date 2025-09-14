@@ -38,9 +38,9 @@ def get_flow():
         redirect_uri=os.environ.get('GOOGLE_REDIRECT_URI', 'http://localhost:5001/auth/google/callback')
     )
     
-    # Allow HTTP for local development by disabling HTTPS requirement
-    if os.environ.get('FLASK_ENV') == 'development':
-        # This is the key fix - disable HTTPS requirement for local development
+    # Allow HTTP for local development or when behind HTTPS proxy
+    if os.environ.get('FLASK_ENV') == 'development' or os.environ.get('BEHIND_PROXY') == 'true':
+        # This is the key fix - disable HTTPS requirement for local development or behind proxy
         os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
         
         # Also set the redirect URI explicitly

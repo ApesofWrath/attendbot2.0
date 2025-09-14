@@ -8,6 +8,7 @@ services:
     environment:
       - FLASK_ENV=production
       - DATABASE_URL=postgresql://postgres:password@db:5432/attendance
+      - BEHIND_PROXY=true
     depends_on:
       - db
     env_file:
