@@ -162,7 +162,7 @@ function exportToCSV() {
     let csvContent = "User,Attendance %,Attended,Excused,Total,Team Requirement,Travel Requirement\n";
     
     {% for user_data in report_data %}
-    csvContent += "{{ user_data.user.username }},{{ user_data.attendance_percentage }}%,{{ user_data.attended_meetings }},{{ user_data.excused_meetings }},{{ user_data.total_meetings }},{{ user_data.meets_team_requirement ? 'Yes' : 'No' }},{{ user_data.meets_travel_requirement ? 'Yes' : 'No' }}\n";
+    csvContent += "{{ user_data.user.username }},{{ user_data.attendance_percentage }}%,{{ user_data.attended_meetings }},{{ user_data.excused_meetings }},{{ user_data.total_meetings }},{% if user_data.meets_team_requirement %}Yes{% else %}No{% endif %},{% if user_data.meets_travel_requirement %}Yes{% else %}No{% endif %}\n";
     {% endfor %}
     
     // Download CSV
