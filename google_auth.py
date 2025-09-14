@@ -97,11 +97,23 @@ def get_slack_user_info(slack_user_id):
         if response['ok']:
             user = response['user']
             profile = user.get('profile', {})
+            
+            # Try to get email from multiple possible fields
+            email = (profile.get('email', '') or 
+                    profile.get('primary_email', '') or 
+                    user.get('email', ''))
+            
             user_info = {
                 'id': user['id'],
                 'name': user.get('real_name', user.get('name', '')),
-                'email': profile.get('email', ''),
-                'display_name': profile.get('display_name', user.get('real_name', ''))
+                'email': email,
+                'display_name': profile.get('display_name', user.get('real_name', '')),
+                'first_name': profile.get('first_name', ''),
+                'last_name': profile.get('last_name', ''),
+                'team_id': user.get('team_id', ''),
+                'deleted': user.get('deleted', False),
+                'is_admin': user.get('is_admin', False),
+                'is_owner': user.get('is_owner', False)
             }
             logger.info(f"Processed user info: {user_info}")
             return user_info

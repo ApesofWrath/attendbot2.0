@@ -28,30 +28,55 @@ class AttendanceSlackBot:
                 slack_user_info = get_slack_user_info(user_id)
                 logger.info(f"Slack user info retrieved: {slack_user_info}")
                 
-                if slack_user_info and slack_user_info.get('email'):
-                    # Check if user exists with this email but different slack_user_id
-                    existing_user = User.query.filter_by(email=slack_user_info['email']).first()
-                    if existing_user:
-                        logger.info(f"Found existing user with email {slack_user_info['email']}, updating slack_user_id")
-                        existing_user.slack_user_id = user_id
-                        db.session.commit()
-                        user = existing_user
-                        self._send_message(channel_id, f"✅ Your Slack account has been linked! You can now use commands.")
+                if slack_user_info:
+                    # Try to match by email first (if available)
+                    if slack_user_info.get('email'):
+                        existing_user = User.query.filter_by(email=slack_user_info['email']).first()
+                        if existing_user:
+                            logger.info(f"Found existing user with email {slack_user_info['email']}, updating slack_user_id")
+                            existing_user.slack_user_id = user_id
+                            db.session.commit()
+                            user = existing_user
+                            self._send_message(channel_id, f"✅ Your Slack account has been linked! You can now use commands.")
+                        else:
+                            # Create user automatically with email
+                            logger.info(f"Creating new user with email {slack_user_info['email']}")
+                            user = User(
+                                slack_user_id=user_id,
+                                email=slack_user_info['email'],
+                                username=slack_user_info.get('display_name', slack_user_info.get('name', 'Slack User')),
+                                is_admin=False
+                            )
+                            db.session.add(user)
+                            db.session.commit()
+                            self._send_message(channel_id, f"✅ Welcome! Your account has been created. You can now log attendance.")
                     else:
-                        # Create user automatically
-                        logger.info(f"Creating new user with email {slack_user_info['email']}")
-                        user = User(
-                            slack_user_id=user_id,
-                            email=slack_user_info['email'],
-                            username=slack_user_info.get('display_name', slack_user_info.get('name', 'Slack User')),
-                            is_admin=False
-                        )
-                        db.session.add(user)
-                        db.session.commit()
-                        self._send_message(channel_id, f"✅ Welcome! Your account has been created. You can now log attendance.")
+                        # No email from Slack - try to match by display name or real name
+                        logger.info(f"No email from Slack, trying to match by name: {slack_user_info.get('display_name')} or {slack_user_info.get('name')}")
+                        
+                        # Try to find user by username (case-insensitive)
+                        display_name = slack_user_info.get('display_name', '').lower().strip()
+                        real_name = slack_user_info.get('name', '').lower().strip()
+                        
+                        existing_user = None
+                        if display_name:
+                            existing_user = User.query.filter(User.username.ilike(f"%{display_name}%")).first()
+                        if not existing_user and real_name:
+                            existing_user = User.query.filter(User.username.ilike(f"%{real_name}%")).first()
+                        
+                        if existing_user:
+                            logger.info(f"Found existing user by name match: {existing_user.username}, linking Slack account")
+                            existing_user.slack_user_id = user_id
+                            db.session.commit()
+                            user = existing_user
+                            self._send_message(channel_id, f"✅ Your Slack account has been linked to {existing_user.username}! You can now use commands.")
+                        else:
+                            # No match found - need manual linking
+                            logger.error(f"No existing user found for Slack user {slack_user_info.get('display_name')} ({slack_user_info.get('name')})")
+                            return self._send_message(channel_id, "❌ No matching account found. Please log in to the web app first to create your account, or contact an admin to link your Slack account.")
                 else:
-                    logger.error(f"Failed to get slack user info or no email found")
-                    return self._send_message(channel_id, "❌ Unable to create account. Please contact an admin or log in to the web app first.")
+                    logger.error(f"Failed to get slack user info")
+                    return self._send_message(channel_id, "❌ Unable to retrieve Slack user information. Please contact an admin.")
             
             if command == "/add_meeting":
                 return self._handle_add_meeting(user, channel_id, text)
