@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   web:
-    build: .
+    image: ghcr.io/apesofwrath/attendbot2.0:latest
     ports:
       - "8000:8000"
     environment:
@@ -10,8 +10,6 @@ services:
       - DATABASE_URL=postgresql://postgres:password@db:5432/attendance
     depends_on:
       - db
-    volumes:
-      - .:/app
     env_file:
       - .env
 
