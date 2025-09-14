@@ -221,7 +221,8 @@ def admin_dashboard():
     
     periods = ReportingPeriod.query.order_by(ReportingPeriod.start_date.desc()).all()
     users = User.query.order_by(User.created_at.desc()).all()
-    return render_template('admin_dashboard.html', periods=periods, users=users)
+    now = datetime.utcnow()
+    return render_template('admin_dashboard.html', periods=periods, users=users, now=now)
 
 @app.route('/admin/users')
 @login_required
