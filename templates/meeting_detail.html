@@ -7,9 +7,14 @@
     <div class="col-12">
         <div class="d-flex justify-content-between align-items-center">
             <h2><i class="fas fa-calendar-check"></i> Meeting Details</h2>
-            <a href="{{ url_for('attendance_report', period_id=period.id) }}" class="btn btn-outline-secondary">
-                <i class="fas fa-arrow-left"></i> Back to Report
-            </a>
+            <div>
+                <button type="button" class="btn btn-danger me-2" data-bs-toggle="modal" data-bs-target="#deleteMeetingModal">
+                    <i class="fas fa-trash"></i> Delete Meeting
+                </button>
+                <a href="{{ url_for('attendance_report', period_id=period.id) }}" class="btn btn-outline-secondary">
+                    <i class="fas fa-arrow-left"></i> Back to Report
+                </a>
+            </div>
         </div>
     </div>
 </div>
@@ -242,6 +247,54 @@
 </div>
 {% endif %}
 
+<!-- Delete Meeting Confirmation Modal -->
+<div class="modal fade" id="deleteMeetingModal" tabindex="-1" aria-labelledby="deleteMeetingModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="deleteMeetingModalLabel">
+                    <i class="fas fa-exclamation-triangle text-danger"></i> Delete Meeting
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-danger">
+                    <strong>Warning:</strong> This action cannot be undone!
+                </div>
+                <p>Are you sure you want to delete this meeting?</p>
+                <div class="card">
+                    <div class="card-body">
+                        <h6><strong>{{ meeting.description }}</strong></h6>
+                        <p class="mb-1"><strong>Date:</strong> {{ meeting.start_time.strftime('%A, %B %d, %Y') }}</p>
+                        <p class="mb-1"><strong>Time:</strong> {{ meeting.start_time.strftime('%H:%M') }} - {{ meeting.end_time.strftime('%H:%M') }}</p>
+                        <p class="mb-0"><strong>Type:</strong> 
+                            {% if meeting.meeting_type == 'regular' %}
+                                Regular Meeting
+                            {% else %}
+                                Outreach Event
+                            {% endif %}
+                        </p>
+                    </div>
+                </div>
+                <p class="mt-3 text-muted">
+                    <strong>This will permanently delete:</strong>
+                </p>
+                <ul class="text-muted">
+                    <li>All attendance records for this meeting</li>
+                    <li>All excuses for this meeting</li>
+                    <li>The meeting itself</li>
+                </ul>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-danger" id="confirmDeleteMeeting">
+                    <i class="fas fa-trash"></i> Delete Meeting
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
 {% endblock %}
 
 {% block scripts %}
@@ -319,6 +372,45 @@ const chart = new Chart(ctx, {
             }
         }
     }
+});
+
+// Handle meeting deletion
+document.getElementById('confirmDeleteMeeting').addEventListener('click', function() {
+    const deleteBtn = this;
+    const originalText = deleteBtn.innerHTML;
+    
+    // Show loading state
+    deleteBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Deleting...';
+    deleteBtn.disabled = true;
+    
+    // Make the delete request
+    fetch(`{{ url_for('delete_meeting', period_id=period.id, meeting_id=meeting.id) }}`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // Show success message and redirect
+            alert('Meeting deleted successfully!');
+            window.location.href = '{{ url_for("attendance_report", period_id=period.id) }}';
+        } else {
+            // Show error message
+            alert('Error deleting meeting: ' + data.message);
+            // Reset button state
+            deleteBtn.innerHTML = originalText;
+            deleteBtn.disabled = false;
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('An error occurred while deleting the meeting.');
+        // Reset button state
+        deleteBtn.innerHTML = originalText;
+        deleteBtn.disabled = false;
+    });
 });
 </script>
 {% endblock %}

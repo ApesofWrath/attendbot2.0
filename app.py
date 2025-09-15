@@ -793,6 +793,33 @@ def meeting_detail(period_id, meeting_id):
                          meeting=meeting,
                          attendance_data=attendance_data)
 
+@app.route('/reports/<int:period_id>/meeting/<int:meeting_id>/delete', methods=['POST'])
+@login_required
+def delete_meeting(period_id, meeting_id):
+    if not current_user.is_admin:
+        return jsonify({'success': False, 'message': 'Access denied. Admin privileges required.'}), 403
+    
+    try:
+        # Get the meeting
+        meeting = MeetingHour.query.get_or_404(meeting_id)
+        
+        # Delete all related data first
+        # Delete attendance logs
+        AttendanceLog.query.filter_by(meeting_hour_id=meeting_id).delete()
+        
+        # Delete excuses
+        Excuse.query.filter_by(meeting_hour_id=meeting_id).delete()
+        
+        # Delete the meeting
+        db.session.delete(meeting)
+        db.session.commit()
+        
+        return jsonify({'success': True, 'message': 'Meeting deleted successfully.'})
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': f'Error deleting meeting: {str(e)}'}), 500
+
 @app.route('/api/attendance', methods=['POST'])
 @login_required
 def log_attendance():
