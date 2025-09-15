@@ -26,6 +26,9 @@
                     <button class="btn btn-secondary btn-sm" onclick="cancelCombineMode()" style="display: none;" id="cancelCombineBtn">
                         <i class="fas fa-times"></i> Cancel
                     </button>
+                    <button class="btn btn-danger btn-sm" onclick="executeCombine()" style="display: none;" id="executeCombineBtn">
+                        <i class="fas fa-compress-alt"></i> <span id="combineBtnText">Combine Users</span>
+                    </button>
                 </div>
             </div>
             <div class="card-body">
@@ -117,10 +120,10 @@
                                         {% endif %}
                                     </div>
                                     <div id="combineActions_{{ user.id }}" style="display: none;">
-                                        <button class="btn btn-sm btn-success" onclick="selectAsPrimary({{ user.id }}, '{{ user.username }}')">
+                                        <button class="btn btn-sm btn-success" id="primaryBtn_{{ user.id }}" onclick="selectAsPrimary({{ user.id }}, '{{ user.username }}')">
                                             <i class="fas fa-star"></i> Primary
                                         </button>
-                                        <button class="btn btn-sm btn-info" onclick="selectAsSecondary({{ user.id }}, '{{ user.username }}')">
+                                        <button class="btn btn-sm btn-info" id="secondaryBtn_{{ user.id }}" onclick="selectAsSecondary({{ user.id }}, '{{ user.username }}')">
                                             <i class="fas fa-arrow-right"></i> Secondary
                                         </button>
                                     </div>
@@ -303,16 +306,19 @@ function cancelCombineMode() {
         actions.style.display = 'none';
     });
     document.getElementById('cancelCombineBtn').style.display = 'none';
+    document.getElementById('executeCombineBtn').style.display = 'none';
     
     // Clear selections
     document.querySelectorAll('.user-checkbox').forEach(checkbox => {
         checkbox.checked = false;
     });
     
+    // Reset button states
+    updateButtonStates();
+    
     // Reset modal
     document.getElementById('primaryUserInfo').innerHTML = '<p class="text-muted">Select a user to be the primary user (the one to keep)</p>';
     document.getElementById('secondaryUserInfo').innerHTML = '<p class="text-muted">Select a user to merge into the primary user</p>';
-    document.getElementById('combineUsersBtn').disabled = true;
 }
 
 function handleUserSelection(userId, username) {
@@ -322,6 +328,7 @@ function handleUserSelection(userId, username) {
         // If no primary selected, make this primary
         if (!selectedPrimary) {
             selectedPrimary = { id: userId, username: username };
+            updateButtonStates();
             document.getElementById('primaryUserInfo').innerHTML = `
                 <div class="d-flex align-items-center">
                     <i class="fas fa-star text-warning me-2"></i>
@@ -333,6 +340,7 @@ function handleUserSelection(userId, username) {
         // If primary is selected but no secondary, make this secondary
         else if (!selectedSecondary) {
             selectedSecondary = { id: userId, username: username };
+            updateButtonStates();
             document.getElementById('secondaryUserInfo').innerHTML = `
                 <div class="d-flex align-items-center">
                     <i class="fas fa-arrow-right text-info me-2"></i>
@@ -357,9 +365,39 @@ function handleUserSelection(userId, username) {
             selectedSecondary = null;
             document.getElementById('secondaryUserInfo').innerHTML = '<p class="text-muted">Select a user to merge into the primary user</p>';
         }
+        updateButtonStates();
     }
     
     updateCombineButton();
+}
+
+function updateButtonStates() {
+    // Reset all button states
+    document.querySelectorAll('[id^="primaryBtn_"]').forEach(btn => {
+        btn.className = 'btn btn-sm btn-success';
+        btn.innerHTML = '<i class="fas fa-star"></i> Primary';
+    });
+    document.querySelectorAll('[id^="secondaryBtn_"]').forEach(btn => {
+        btn.className = 'btn btn-sm btn-info';
+        btn.innerHTML = '<i class="fas fa-arrow-right"></i> Secondary';
+    });
+    
+    // Highlight selected users
+    if (selectedPrimary) {
+        const primaryBtn = document.getElementById(`primaryBtn_${selectedPrimary.id}`);
+        if (primaryBtn) {
+            primaryBtn.className = 'btn btn-sm btn-warning';
+            primaryBtn.innerHTML = '<i class="fas fa-star"></i> ✓ Primary';
+        }
+    }
+    
+    if (selectedSecondary) {
+        const secondaryBtn = document.getElementById(`secondaryBtn_${selectedSecondary.id}`);
+        if (secondaryBtn) {
+            secondaryBtn.className = 'btn btn-sm btn-primary';
+            secondaryBtn.innerHTML = '<i class="fas fa-arrow-right"></i> ✓ Secondary';
+        }
+    }
 }
 
 function selectAsPrimary(userId, username) {
@@ -374,6 +412,8 @@ function selectAsPrimary(userId, username) {
     // Set as primary
     selectedPrimary = { id: userId, username: username };
     selectedSecondary = null;
+    
+    updateButtonStates();
     
     document.getElementById('primaryUserInfo').innerHTML = `
         <div class="d-flex align-items-center">
@@ -394,6 +434,8 @@ function selectAsSecondary(userId, username) {
     // Set as secondary
     selectedSecondary = { id: userId, username: username };
     
+    updateButtonStates();
+    
     document.getElementById('secondaryUserInfo').innerHTML = `
         <div class="d-flex align-items-center">
             <i class="fas fa-arrow-right text-info me-2"></i>
@@ -406,13 +448,17 @@ function selectAsSecondary(userId, username) {
 }
 
 function updateCombineButton() {
-    const combineBtn = document.getElementById('combineUsersBtn');
+    const executeBtn = document.getElementById('executeCombineBtn');
+    const combineBtnText = document.getElementById('combineBtnText');
+    
     if (selectedPrimary && selectedSecondary) {
-        combineBtn.disabled = false;
-        combineBtn.innerHTML = `<i class="fas fa-compress-alt"></i> Combine ${selectedSecondary.username} into ${selectedPrimary.username}`;
+        // Show the execute button
+        executeBtn.style.display = 'inline-block';
+        combineBtnText.textContent = `Combine ${selectedSecondary.username} into ${selectedPrimary.username}`;
     } else {
-        combineBtn.disabled = true;
-        combineBtn.innerHTML = '<i class="fas fa-compress-alt"></i> Combine Users';
+        // Hide the execute button
+        executeBtn.style.display = 'none';
+        combineBtnText.textContent = 'Combine Users';
     }
 }
 
