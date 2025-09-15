@@ -341,15 +341,33 @@ while (currentTime <= meetingEndTime) {
     currentTime.setMinutes(currentTime.getMinutes() + 15);
 }
 
+// Debug: Log attendance data
+console.log('Attendance data:', attendanceData);
+console.log('Time intervals:', timeIntervals);
+
 // Calculate attendance at each interval based on actual attendance times
 const attendanceCounts = timeIntervals.map(interval => {
     return attendanceData.filter(item => {
-        // Use calculated attendance times (handles both new and legacy records)
-        const attendanceStart = new Date(item.attendance_start_time);
-        const attendanceEnd = new Date(item.attendance_end_time);
-        return interval >= attendanceStart && interval <= attendanceEnd;
+        try {
+            // Use calculated attendance times (handles both new and legacy records)
+            const attendanceStart = new Date(item.log.attendance_start_time);
+            const attendanceEnd = new Date(item.log.attendance_end_time);
+            
+            // Check if dates are valid
+            if (isNaN(attendanceStart.getTime()) || isNaN(attendanceEnd.getTime())) {
+                console.warn('Invalid attendance times for item:', item);
+                return false;
+            }
+            
+            return interval >= attendanceStart && interval <= attendanceEnd;
+        } catch (error) {
+            console.error('Error processing attendance times:', error, item);
+            return false;
+        }
     }).length;
 });
+
+console.log('Attendance counts:', attendanceCounts);
 
 // Calculate peak attendance information
 const maxAttendance = attendanceCounts.length > 0 ? Math.max(...attendanceCounts) : 0;
