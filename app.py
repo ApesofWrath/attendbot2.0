@@ -1106,10 +1106,13 @@ def get_meeting_attendance_detail(meeting_id):
     ).order_by(AttendanceLog.logged_at).all()
     
     # Get excuses for this meeting with created_by_user info
-    excuses = db.session.query(Excuse, User, User).join(
+    from sqlalchemy.orm import aliased
+    CreatedByUser = aliased(User)
+    
+    excuses = db.session.query(Excuse, User, CreatedByUser).join(
         User, Excuse.user_id == User.id
     ).join(
-        User, Excuse.created_by == User.id, aliased=True
+        CreatedByUser, Excuse.created_by == CreatedByUser.id
     ).filter(
         Excuse.meeting_hour_id == meeting_id
     ).all()
