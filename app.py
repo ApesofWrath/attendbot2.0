@@ -1048,6 +1048,16 @@ def get_separated_meetings_data_for_period(period_id):
     if not period:
         return [], []
     
+    # Get total number of unique members who attended any meeting in this period
+    total_members_in_period = db.session.query(User.id).join(
+        AttendanceLog, User.id == AttendanceLog.user_id
+    ).join(
+        MeetingHour, AttendanceLog.meeting_hour_id == MeetingHour.id
+    ).filter(
+        MeetingHour.start_time >= period.start_date,
+        MeetingHour.start_time <= period.end_date
+    ).distinct().count()
+    
     # Get all meetings in the period
     meetings = MeetingHour.query.filter(
         MeetingHour.start_time >= period.start_date,
@@ -1075,13 +1085,17 @@ def get_separated_meetings_data_for_period(period_id):
         excuses = Excuse.query.filter_by(meeting_hour_id=meeting.id).all()
         excused_count = len(excuses)
         
+        # Calculate attendance percentage as members who attended / total members in period
+        attendance_percentage = round((attendance_count / total_members_in_period * 100) if total_members_in_period > 0 else 0, 1)
+        
         meeting_data = {
             'meeting': meeting,
             'attendance_count': attendance_count,
             'excused_count': excused_count,
             'total_attended_hours': round(total_attended_hours, 2),
             'total_meeting_hours': round(total_meeting_hours, 2),
-            'attendance_percentage': round((total_attended_hours / total_meeting_hours * 100) if total_meeting_hours > 0 else 0, 1)
+            'attendance_percentage': attendance_percentage,
+            'total_members_in_period': total_members_in_period
         }
         
         # Separate by meeting type
