@@ -133,11 +133,11 @@ Enable event subscriptions and add your endpoint:
 ### User Commands (Slack)
 
 ```bash
-# Log regular meeting attendance (by meeting ID)
-/log_attendance 123 Attended the full meeting
+# Log regular meeting attendance (by meeting ID) - hours required
+/log_attendance 123 2.0 Attended the full meeting
 
-# Log attendance by date (full attendance)
-/log_attendance 2024-01-15 full Attended the full meeting
+# Log attendance by date with hours
+/log_attendance 2024-01-15 2.0 Attended the full meeting
 
 # Log partial attendance by date
 /log_attendance 2024-01-15 1.5 Arrived late due to traffic
@@ -185,6 +185,8 @@ Enable event subscriptions and add your endpoint:
 - `meeting_hour_id`: Meeting attended
 - `logged_at`: When attendance was logged
 - `notes`: Optional notes
+- `hours_attended`: Hours actually attended (required)
+- `is_partial`: Whether this is partial attendance
 
 ### Reporting Periods
 - `id`: Primary key
@@ -204,9 +206,9 @@ Enable event subscriptions and add your endpoint:
 ## Attendance Calculation
 
 ### Regular Meetings
-Attendance is calculated as:
+Attendance is now calculated based on hours:
 ```
-Attendance % = (Attended Meetings / (Total Meetings - Excused Meetings)) × 100
+Attendance % = (Attended Hours / (Total Hours - Excused Hours)) × 100
 ```
 
 ### Outreach Hours
@@ -215,6 +217,12 @@ Outreach hours are calculated as:
 Total Outreach Hours = Sum of all outreach event durations
 Attended Outreach Hours = Sum of attended outreach event durations
 ```
+
+### Hour-Based Tracking
+- Users must specify the number of hours they attended for each meeting
+- Partial attendance is supported - users can log fewer hours than the total meeting duration
+- Full attendance means the user attended for the entire meeting duration
+- Excused meetings are excluded from the total hours calculation
 
 ### Requirements
 - **Regular Meetings**: 60% (team) / 75% (travel)

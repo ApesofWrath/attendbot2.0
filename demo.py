@@ -61,7 +61,7 @@ def create_demo_data():
         for i in range(10):
             meeting = MeetingHour(
                 start_time=datetime.utcnow() - timedelta(days=25-i*2, hours=14),
-                end_time=datetime.utcnow() - timedelta(days=25-i*2, hours=16),
+                end_time=datetime.utcnow() - timedelta(days=25-i*2, hours=12),
                 description=f"Team Meeting {i+1}",
                 meeting_type='regular',
                 created_by=admin.id
@@ -74,7 +74,7 @@ def create_demo_data():
         for i in range(5):
             outreach = MeetingHour(
                 start_time=datetime.utcnow() - timedelta(days=20-i*3, hours=10),
-                end_time=datetime.utcnow() - timedelta(days=20-i*3, hours=8),
+                end_time=datetime.utcnow() - timedelta(days=20-i*3, hours=-8),
                 description=f"Outreach Event {i+1}",
                 meeting_type='outreach',
                 created_by=admin.id
@@ -105,7 +105,7 @@ def create_demo_data():
                     meeting_hour_id=meetings[j].id,
                     notes=f"Attended meeting {j+1}" + (" (partial)" if is_partial else ""),
                     is_partial=is_partial,
-                    partial_hours=partial_hours
+                    partial_hours=partial_hours if is_partial else None
                 )
                 db.session.add(attendance)
         
@@ -122,7 +122,9 @@ def create_demo_data():
                 attendance = AttendanceLog(
                     user_id=user.id,
                     meeting_hour_id=outreach_events[j].id,
-                    notes=f"Attended outreach {j+1}"
+                    notes=f"Attended outreach {j+1}",
+                    is_partial=False,
+                    partial_hours=None
                 )
                 db.session.add(attendance)
         
@@ -209,8 +211,8 @@ def show_attendance_summary():
             regular = user_data['regular_meetings']
             print(f"  Regular Meetings:")
             print(f"    Attendance: {regular['attendance_percentage']}%")
-            print(f"    Attended: {regular['attended']}/{regular['total']}")
-            print(f"    Excused: {regular['excused']}")
+            print(f"    Attended: {regular['attended_hours']}h/{regular['total_hours']}h")
+            print(f"    Excused: {regular['excused_hours']}h")
             print(f"    Team Requirement (60%): {'✓' if regular['meets_team_requirement'] else '✗'}")
             print(f"    Travel Requirement (75%): {'✓' if regular['meets_travel_requirement'] else '✗'}")
             

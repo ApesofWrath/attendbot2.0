@@ -183,7 +183,7 @@ class AttendanceSlackBot:
         try:
             parts = text.strip().split()
             if not parts:
-                return self._send_ephemeral_message(channel_id, user_id, "❌ Format: `/log_attendance meeting_id [notes]` or `/log_attendance YYYY-MM-DD [hours] [notes]`")
+                return self._send_ephemeral_message(channel_id, user_id, "❌ Format: `/log_attendance meeting_id hours [notes]` or `/log_attendance YYYY-MM-DD hours [notes]`")
             
             # Check if first part is a date (YYYY-MM-DD format) or meeting ID
             first_part = parts[0]
@@ -201,10 +201,14 @@ class AttendanceSlackBot:
             return self._send_ephemeral_message(channel_id, user_id, f"❌ Error logging attendance: {str(e)}")
     
     def _handle_meeting_id_logging(self, user, channel_id, parts):
-        """Handle traditional meeting ID based logging"""
+        """Handle meeting ID based logging with required hours"""
         try:
+            if len(parts) < 2:
+                return self._send_ephemeral_message(channel_id, user_id, "❌ Format: `/log_attendance meeting_id hours [notes]`")
+            
             meeting_id = int(parts[0])
-            notes = " ".join(parts[1:]) if len(parts) > 1 else ""
+            hours_str = parts[1]
+            notes = " ".join(parts[2:]) if len(parts) > 2 else ""
             
             # Check if meeting exists
             meeting_hour = MeetingHour.query.get(meeting_id)
@@ -220,46 +224,60 @@ class AttendanceSlackBot:
             if existing_log:
                 return self._send_ephemeral_message(channel_id, user_id, "❌ Attendance already logged for this meeting.")
             
+            # Parse and validate hours
+            try:
+                hours_attended = float(hours_str)
+                if hours_attended <= 0:
+                    return self._send_ephemeral_message(channel_id, user_id, "❌ Hours must be greater than 0.")
+                
+                # Validate hours don't exceed meeting duration
+                meeting_duration = (meeting_hour.end_time - meeting_hour.start_time).total_seconds() / 3600
+                if hours_attended > meeting_duration:
+                    return self._send_ephemeral_message(channel_id, user_id, f"❌ Hours attended ({hours_attended}h) cannot exceed meeting duration ({meeting_duration:.1f}h).")
+                    
+            except ValueError:
+                return self._send_ephemeral_message(channel_id, user_id, "❌ Invalid hours format. Use a number (e.g., 1.5).")
+            
+            # Determine if this is partial attendance
+            is_partial = hours_attended < meeting_duration
+            
             # Create attendance log
             attendance_log = AttendanceLog(
                 user_id=user.id,
                 meeting_hour_id=meeting_id,
-                notes=notes
+                notes=notes,
+                is_partial=is_partial,
+                hours_attended=hours_attended
             )
             
             db.session.add(attendance_log)
             db.session.commit()
             
-            return self._send_ephemeral_message(channel_id, user_id, f"✅ Attendance logged for: {meeting_hour.description}")
+            if is_partial:
+                return self._send_ephemeral_message(channel_id, user_id, f"✅ Partial attendance logged: {hours_attended}h of {meeting_duration:.1f}h for {meeting_hour.description}")
+            else:
+                return self._send_ephemeral_message(channel_id, user_id, f"✅ Full attendance logged: {hours_attended}h for {meeting_hour.description}")
             
         except ValueError:
             return self._send_ephemeral_message(channel_id, user_id, "❌ Invalid meeting ID. Must be a number.")
     
     def _handle_date_based_logging(self, user, channel_id, parts, meeting_date):
-        """Handle date-based logging with optional partial hours"""
+        """Handle date-based logging with required hours"""
         try:
             if len(parts) < 2:
-                return self._send_ephemeral_message(channel_id, user_id, "❌ Format: `/log_attendance YYYY-MM-DD [hours] [notes]`")
+                return self._send_ephemeral_message(channel_id, user_id, "❌ Format: `/log_attendance YYYY-MM-DD hours [notes]`")
             
-            # Parse hours (optional for full attendance)
+            # Parse hours (now required)
             hours_str = parts[1]
             notes = " ".join(parts[2:]) if len(parts) > 2 else ""
             
-            # Check if hours are provided
-            if hours_str.lower() in ['full', 'complete', '']:
-                # Full attendance
-                partial_hours = None
-                is_partial = False
-            else:
-                # Partial attendance
-                try:
-                    partial_hours = float(hours_str)
-                    is_partial = True
-                    
-                    if partial_hours <= 0:
-                        return self._send_ephemeral_message(channel_id, user_id, "❌ Hours must be greater than 0.")
-                except ValueError:
-                    return self._send_ephemeral_message(channel_id, user_id, "❌ Invalid hours format. Use a number (e.g., 1.5) or 'full' for complete attendance.")
+            # Parse and validate hours
+            try:
+                hours_attended = float(hours_str)
+                if hours_attended <= 0:
+                    return self._send_ephemeral_message(channel_id, user_id, "❌ Hours must be greater than 0.")
+            except ValueError:
+                return self._send_ephemeral_message(channel_id, user_id, "❌ Invalid hours format. Use a number (e.g., 1.5).")
             
             # Find meetings on the specified date
             meetings = MeetingHour.query.filter(
@@ -288,29 +306,30 @@ class AttendanceSlackBot:
             if existing_log:
                 return self._send_ephemeral_message(channel_id, user_id, f"❌ Attendance already logged for {best_meeting.description} on {meeting_date.strftime('%Y-%m-%d')}.")
             
-            # Validate partial hours don't exceed meeting duration
-            if is_partial:
-                meeting_duration = (best_meeting.end_time - best_meeting.start_time).total_seconds() / 3600
-                if partial_hours > meeting_duration:
-                    return self._send_ephemeral_message(channel_id, user_id, f"❌ Partial hours ({partial_hours}h) cannot exceed meeting duration ({meeting_duration:.1f}h).")
+            # Validate hours don't exceed meeting duration
+            meeting_duration = (best_meeting.end_time - best_meeting.start_time).total_seconds() / 3600
+            if hours_attended > meeting_duration:
+                return self._send_ephemeral_message(channel_id, user_id, f"❌ Hours attended ({hours_attended}h) cannot exceed meeting duration ({meeting_duration:.1f}h).")
+            
+            # Determine if this is partial attendance
+            is_partial = hours_attended < meeting_duration
             
             # Create attendance log
             attendance_log = AttendanceLog(
                 user_id=user.id,
                 meeting_hour_id=best_meeting.id,
                 notes=notes,
-                partial_hours=partial_hours,
-                is_partial=is_partial
+                is_partial=is_partial,
+                hours_attended=hours_attended
             )
             
             db.session.add(attendance_log)
             db.session.commit()
             
             if is_partial:
-                meeting_duration = (best_meeting.end_time - best_meeting.start_time).total_seconds() / 3600
-                return self._send_ephemeral_message(channel_id, user_id, f"✅ Partial attendance logged: {partial_hours}h of {meeting_duration:.1f}h for {best_meeting.description} on {meeting_date.strftime('%Y-%m-%d')}")
+                return self._send_ephemeral_message(channel_id, user_id, f"✅ Partial attendance logged: {hours_attended}h of {meeting_duration:.1f}h for {best_meeting.description} on {meeting_date.strftime('%Y-%m-%d')}")
             else:
-                return self._send_ephemeral_message(channel_id, user_id, f"✅ Full attendance logged for: {best_meeting.description} on {meeting_date.strftime('%Y-%m-%d')}")
+                return self._send_ephemeral_message(channel_id, user_id, f"✅ Full attendance logged: {hours_attended}h for {best_meeting.description} on {meeting_date.strftime('%Y-%m-%d')}")
             
         except Exception as e:
             return self._send_ephemeral_message(channel_id, user_id, f"❌ Error logging attendance: {str(e)}")
@@ -475,12 +494,11 @@ class AttendanceSlackBot:
             message = f"📊 *Your Attendance Report*\n"
             message += f"Period: {current_period.name}\n\n"
             
-            # Regular meetings
+            # Regular meetings - now hour-based
             regular = attendance_data['regular_meetings']
             message += f"*Regular Meetings:*\n"
-            message += f"Total: {regular['total']} | Attended: {regular['attended']} | Excused: {regular['excused']}\n"
-            if regular['partial_hours'] > 0:
-                message += f"Partial Hours: {regular['partial_hours']}h\n"
+            message += f"Total Hours: {regular['total_hours']} | Attended: {regular['attended_hours']} | Excused: {regular['excused_hours']}\n"
+            message += f"Effective Total: {regular['effective_total_hours']} | Effective Attended: {regular['effective_attended_hours']}\n"
             message += f"Attendance Rate: {regular['attendance_percentage']}%\n"
             message += f"Team Requirement (60%): {'✅' if regular['meets_team_requirement'] else '❌'}\n"
             message += f"Travel Requirement (75%): {'✅' if regular['meets_travel_requirement'] else '❌'}\n\n"
@@ -636,8 +654,8 @@ class AttendanceSlackBot:
             message += "`/excuse user_id meeting_id reason` - Excuse user from meeting\n\n"
         
         message += "*User Commands:*\n"
-        message += "`/log_attendance meeting_id [notes]` - Log regular meeting attendance\n"
-        message += "`/log_attendance YYYY-MM-DD [hours] [notes]` - Log attendance by date (partial or full)\n"
+        message += "`/log_attendance meeting_id hours [notes]` - Log regular meeting attendance with hours\n"
+        message += "`/log_attendance YYYY-MM-DD hours [notes]` - Log attendance by date with hours\n"
         message += "`/log_outreach outreach_id [notes]` - Log outreach attendance\n"
         message += "`/request_excuse meeting_id reason` - Request excuse for a meeting\n"
         message += "`/request_excuse YYYY-MM-DD reason` - Request excuse by date\n"

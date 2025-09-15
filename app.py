@@ -8,6 +8,8 @@ import pytz
 from dotenv import load_dotenv
 import os
 import json
+import csv
+import io
 from google_auth import get_flow, get_user_info, get_slack_user_info
 
 # Load environment variables
@@ -62,8 +64,8 @@ class AttendanceLog(db.Model):
     meeting_hour_id = db.Column(db.Integer, db.ForeignKey('meeting_hour.id'), nullable=False)
     logged_at = db.Column(db.DateTime, default=datetime.utcnow)
     notes = db.Column(db.String(500), nullable=True)
-    # Partial attendance fields
-    partial_hours = db.Column(db.Float, nullable=True)  # Hours actually attended
+    # Attendance fields - now always required
+    partial_hours = db.Column(db.Float, nullable=True)  # Hours actually attended (can be null for full attendance)
     is_partial = db.Column(db.Boolean, default=False)  # Whether this is partial attendance
 
 class ReportingPeriod(db.Model):
@@ -234,9 +236,45 @@ def delete_period(period_id):
     period = ReportingPeriod.query.get_or_404(period_id)
     
     try:
+        # Get all meetings within this reporting period's date range
+        meetings_in_period = MeetingHour.query.filter(
+            MeetingHour.start_time >= period.start_date,
+            MeetingHour.start_time <= period.end_date
+        ).all()
+        
+        # Delete all attendance logs for meetings in this period
+        meeting_ids = [m.id for m in meetings_in_period]
+        if meeting_ids:
+            AttendanceLog.query.filter(
+                AttendanceLog.meeting_hour_id.in_(meeting_ids)
+            ).delete(synchronize_session=False)
+        
+        # Delete all excuse requests for meetings in this period
+        if meeting_ids:
+            ExcuseRequest.query.filter(
+                ExcuseRequest.meeting_hour_id.in_(meeting_ids)
+            ).delete(synchronize_session=False)
+        
+        # Delete all excuses for meetings in this period
+        if meeting_ids:
+            Excuse.query.filter(
+                Excuse.meeting_hour_id.in_(meeting_ids)
+            ).delete(synchronize_session=False)
+        
+        # Delete all excuses that reference this reporting period directly
+        Excuse.query.filter(
+            Excuse.reporting_period_id == period_id
+        ).delete(synchronize_session=False)
+        
+        # Delete all meetings in this period
+        for meeting in meetings_in_period:
+            db.session.delete(meeting)
+        
+        # Finally, delete the reporting period itself
         db.session.delete(period)
         db.session.commit()
-        flash(f'Reporting period "{period.name}" has been deleted successfully.', 'success')
+        
+        flash(f'Reporting period "{period.name}" and all associated meetings, attendance logs, and excuses have been deleted successfully.', 'success')
     except Exception as e:
         db.session.rollback()
         flash(f'Error deleting reporting period: {str(e)}', 'error')
@@ -423,6 +461,7 @@ def log_attendance():
     data = request.get_json()
     meeting_hour_id = data.get('meeting_hour_id')
     notes = data.get('notes', '')
+    hours_attended = data.get('hours_attended')
     
     # Check if meeting hour exists and is valid
     meeting_hour = MeetingHour.query.get(meeting_hour_id)
@@ -438,11 +477,33 @@ def log_attendance():
     if existing_log:
         return jsonify({'error': 'Attendance already logged for this meeting'}), 400
     
+    # Validate hours_attended
+    if hours_attended is None:
+        return jsonify({'error': 'Hours attended is required'}), 400
+    
+    try:
+        hours_attended = float(hours_attended)
+        if hours_attended <= 0:
+            return jsonify({'error': 'Hours attended must be greater than 0'}), 400
+        
+        # Calculate total meeting hours
+        total_meeting_hours = (meeting_hour.end_time - meeting_hour.start_time).total_seconds() / 3600
+        if hours_attended > total_meeting_hours:
+            return jsonify({'error': f'Hours attended ({hours_attended}) cannot exceed total meeting hours ({total_meeting_hours:.2f})'}), 400
+            
+    except (ValueError, TypeError):
+        return jsonify({'error': 'Hours attended must be a valid number'}), 400
+    
+    # Determine if this is partial attendance
+    is_partial = hours_attended < total_meeting_hours
+    
     # Create attendance log
     attendance_log = AttendanceLog(
         user_id=current_user.id,
         meeting_hour_id=meeting_hour_id,
-        notes=notes
+        notes=notes,
+        is_partial=is_partial,
+        partial_hours=hours_attended if is_partial else None
     )
     
     db.session.add(attendance_log)
@@ -487,68 +548,59 @@ def get_user_attendance_data(user_id, period_id):
     regular_excused = [excuse for excuse in excuses if excuse.meeting_hour.meeting_type == 'regular']
     # outreach_excused = [] # Outreach hours cannot be excused
     
-    # Calculate regular meeting metrics
-    total_regular = len(regular_meetings)
-    attended_regular = len(regular_attended)
-    excused_regular = len(regular_excused)
-    effective_regular_total = total_regular - excused_regular
-    effective_regular_attended = attended_regular
+    # Calculate regular meeting metrics - now based on hours
+    total_regular_hours = sum((m.end_time - m.start_time).total_seconds() / 3600 for m in regular_meetings)
+    # Use partial_hours if available (for CSV imports), otherwise fall back to meeting duration
+    attended_regular_hours = sum(log.partial_hours if log.partial_hours is not None else (log.meeting_hour.end_time - log.meeting_hour.start_time).total_seconds() / 3600 for log in regular_attended)
     
-    # Calculate partial attendance for regular meetings
-    partial_attendance_hours = 0
-    for log in regular_attended:
-        if log.is_partial and log.partial_hours:
-            partial_attendance_hours += log.partial_hours
-        else:
-            # Full attendance - count as 1 meeting
-            pass
+    # Calculate excused hours for regular meetings
+    excused_regular_hours = 0
+    for excuse in regular_excused:
+        excused_regular_hours += (excuse.meeting_hour.end_time - excuse.meeting_hour.start_time).total_seconds() / 3600
     
-    regular_attendance_percentage = (effective_regular_attended / effective_regular_total * 100) if effective_regular_total > 0 else 0
+    effective_regular_total_hours = total_regular_hours - excused_regular_hours
+    effective_regular_attended_hours = attended_regular_hours
+    
+    regular_attendance_percentage = (effective_regular_attended_hours / effective_regular_total_hours * 100) if effective_regular_total_hours > 0 else 0
     
     # Calculate outreach hours
     total_outreach_hours = sum((m.end_time - m.start_time).total_seconds() / 3600 for m in outreach_meetings)
     
-    # Calculate attended outreach hours (including partial attendance)
-    attended_outreach_hours = 0
-    for log in outreach_attended:
-        if log.is_partial and log.partial_hours:
-            attended_outreach_hours += log.partial_hours
-        else:
-            # Full attendance - use meeting duration
-            attended_outreach_hours += (log.meeting_hour.end_time - log.meeting_hour.start_time).total_seconds() / 3600
+    # Calculate attended outreach hours
+    # Use partial_hours if available (for CSV imports), otherwise fall back to meeting duration
+    attended_outreach_hours = sum(log.partial_hours if log.partial_hours is not None else (log.meeting_hour.end_time - log.meeting_hour.start_time).total_seconds() / 3600 for log in outreach_attended)
     
     # Outreach hours cannot be excused - all hours count toward total
     excused_outreach_hours = 0  # No outreach hours can be excused
     effective_outreach_hours = total_outreach_hours  # All outreach hours count
     effective_attended_outreach_hours = attended_outreach_hours
     
-    # Calculate overall metrics - only regular meetings can be excused
-    total_meetings = len(all_meeting_hours)
-    attended_meetings = len(attendance_logs)
-    excused_meetings = len(regular_excused)  # Only count regular meeting excuses
-    effective_total = total_meetings - excused_meetings
-    effective_attended = attended_meetings
-    attendance_percentage = (effective_attended / effective_total * 100) if effective_total > 0 else 0
+    # Calculate overall metrics - now based on hours
+    total_hours = total_regular_hours + total_outreach_hours
+    attended_hours = attended_regular_hours + attended_outreach_hours
+    excused_hours = excused_regular_hours  # Only regular meetings can be excused
+    effective_total_hours = total_hours - excused_hours
+    effective_attended_hours = attended_hours
+    attendance_percentage = (effective_attended_hours / effective_total_hours * 100) if effective_total_hours > 0 else 0
     
     return {
-        # Overall metrics
-        'total_meetings': total_meetings,
-        'attended_meetings': attended_meetings,
-        'excused_meetings': excused_meetings,
-        'effective_total': effective_total,
-        'effective_attended': effective_attended,
+        # Overall metrics - now hour-based
+        'total_hours': round(total_hours, 2),
+        'attended_hours': round(attended_hours, 2),
+        'excused_hours': round(excused_hours, 2),
+        'effective_total_hours': round(effective_total_hours, 2),
+        'effective_attended_hours': round(effective_attended_hours, 2),
         'attendance_percentage': round(attendance_percentage, 2),
         'meets_team_requirement': regular_attendance_percentage >= 60,
         'meets_travel_requirement': regular_attendance_percentage >= 75,
         
-        # Regular meeting metrics
+        # Regular meeting metrics - now hour-based
         'regular_meetings': {
-            'total': total_regular,
-            'attended': attended_regular,
-            'excused': excused_regular,
-            'effective_total': effective_regular_total,
-            'effective_attended': effective_regular_attended,
-            'partial_hours': round(partial_attendance_hours, 2),
+            'total_hours': round(total_regular_hours, 2),
+            'attended_hours': round(attended_regular_hours, 2),
+            'excused_hours': round(excused_regular_hours, 2),
+            'effective_total_hours': round(effective_regular_total_hours, 2),
+            'effective_attended_hours': round(effective_regular_attended_hours, 2),
             'attendance_percentage': round(regular_attendance_percentage, 2),
             'meets_team_requirement': regular_attendance_percentage >= 60,
             'meets_travel_requirement': regular_attendance_percentage >= 75
@@ -567,7 +619,7 @@ def get_user_attendance_data(user_id, period_id):
     }
 
 def get_attendance_report_data(period_id):
-    """Get attendance report data for all users in a period"""
+    """Get attendance report data for all users in a period who have >0 hours attended"""
     period = ReportingPeriod.query.get(period_id)
     if not period:
         return []
@@ -577,11 +629,430 @@ def get_attendance_report_data(period_id):
     
     for user in users:
         user_data = get_user_attendance_data(user.id, period_id)
-        if user_data:
+        if user_data and user_data['attended_hours'] > 0:
             user_data['user'] = user
             report_data.append(user_data)
     
     return sorted(report_data, key=lambda x: x['attendance_percentage'], reverse=True)
+
+def guess_date_for_outreach_row(rows, current_row_idx, data_start_row):
+    """
+    For outreach imports, guess a date for a row that doesn't have a date
+    by finding the nearest dates above and below and interpolating.
+    """
+    # Look for dates in rows above
+    above_date = None
+    for i in range(current_row_idx - 1, data_start_row - 1, -1):
+        if i < len(rows):
+            row = rows[i]
+            if len(row) >= 1 and row[0]:
+                first_column = row[0].strip()
+                if first_column and any(char.isdigit() for char in first_column):
+                    # Try to extract date
+                    import re
+                    date_patterns = [
+                        r'(\d{1,2}/\d{1,2}/\d{2,4})',  # MM/DD/YYYY or MM/DD/YY
+                        r'(\d{4}-\d{1,2}-\d{1,2})',    # YYYY-MM-DD
+                        r'(\d{1,2}-\d{1,2}-\d{2,4})',  # MM-DD-YYYY or MM-DD-YY
+                    ]
+                    
+                    date_match = None
+                    for pattern in date_patterns:
+                        match = re.search(pattern, first_column)
+                        if match:
+                            date_match = match.group(1)
+                            break
+                    
+                    if date_match:
+                        # Parse the date
+                        for date_format in ['%m/%d/%Y', '%m/%d/%y', '%Y-%m-%d', '%m-%d-%Y', '%m-%d-%y']:
+                            try:
+                                above_date = datetime.strptime(date_match, date_format)
+                                break
+                            except ValueError:
+                                continue
+                    if above_date:
+                        break
+    
+    # Look for dates in rows below
+    below_date = None
+    for i in range(current_row_idx + 1, len(rows)):
+        if i < len(rows):
+            row = rows[i]
+            if len(row) >= 1 and row[0]:
+                first_column = row[0].strip()
+                if first_column and any(char.isdigit() for char in first_column):
+                    # Try to extract date
+                    import re
+                    date_patterns = [
+                        r'(\d{1,2}/\d{1,2}/\d{2,4})',  # MM/DD/YYYY or MM/DD/YY
+                        r'(\d{4}-\d{1,2}-\d{1,2})',    # YYYY-MM-DD
+                        r'(\d{1,2}-\d{1,2}-\d{2,4})',  # MM-DD-YYYY or MM-DD-YY
+                    ]
+                    
+                    date_match = None
+                    for pattern in date_patterns:
+                        match = re.search(pattern, first_column)
+                        if match:
+                            date_match = match.group(1)
+                            break
+                    
+                    if date_match:
+                        # Parse the date
+                        for date_format in ['%m/%d/%Y', '%m/%d/%y', '%Y-%m-%d', '%m-%d-%Y', '%m-%d-%y']:
+                            try:
+                                below_date = datetime.strptime(date_match, date_format)
+                                break
+                            except ValueError:
+                                continue
+                    if below_date:
+                        break
+    
+    # If we have both dates, interpolate
+    if above_date and below_date:
+        # Calculate the midpoint date
+        from datetime import timedelta
+        time_diff = below_date - above_date
+        midpoint_days = time_diff.days // 2
+        return above_date + timedelta(days=midpoint_days)
+    elif above_date:
+        # If only above date, add 1 day
+        from datetime import timedelta
+        return above_date + timedelta(days=1)
+    elif below_date:
+        # If only below date, subtract 1 day
+        from datetime import timedelta
+        return below_date - timedelta(days=1)
+    
+    return None
+
+def parse_csv_attendance_data(rows, data_type, period_id, created_by_user_id):
+    """
+    Parse CSV data for attendance/outreach import.
+    
+    Expected format:
+    - First row: usernames (after first two columns)
+    - First column: dates
+    - Second column: meeting length in hours
+    - Rest of data: hours attended by each user
+    
+    Args:
+        rows: List of CSV rows
+        data_type: 'attendance' or 'outreach'
+        period_id: ID of the reporting period
+        created_by_user_id: ID of the user creating the meetings
+    
+    Returns:
+        dict with success status, counts, and details
+    """
+    try:
+        if len(rows) < 2:
+            return {'error': 'CSV must have at least 2 rows', 'meetings_created': 0, 'attendance_logs_created': 0, 'excuses_created': 0, 'details': []}
+        
+        # Get usernames from first row (skip first two columns)
+        # For attendance data, ignore last 5 columns; for outreach, ignore last 3 columns
+        ignore_columns = 5 if data_type == 'attendance' else 3
+        usernames = [username.strip() for username in rows[0][2:-ignore_columns] if username.strip()]
+        
+        if not usernames:
+            return {'error': 'No usernames found in CSV header', 'meetings_created': 0, 'attendance_logs_created': 0, 'excuses_created': 0, 'details': []}
+        
+        # Create username to user_id mapping
+        username_to_user = {}
+        for username in usernames:
+            # Try to find user by username (exact match first)
+            user = User.query.filter_by(username=username).first()
+            if not user:
+                # Try to find by email if username contains @
+                if '@' in username:
+                    user = User.query.filter_by(email=username).first()
+                # Try partial match on username
+                if not user:
+                    user = User.query.filter(User.username.contains(username)).first()
+            
+            if user:
+                username_to_user[username] = user.id
+            else:
+                # Create new user if not found
+                new_user = User(
+                    username=username,
+                    email=f"{username}@example.com",  # Placeholder email
+                    is_admin=False
+                )
+                db.session.add(new_user)
+                db.session.flush()  # Get the ID
+                username_to_user[username] = new_user.id
+        
+        meetings_created = 0
+        attendance_logs_created = 0
+        excuses_created = 0
+        details = []
+        
+        # Find the actual data rows - skip header rows and summary rows
+        data_start_row = 1
+        for i, row in enumerate(rows[1:], start=2):
+            if len(row) >= 3 and row[0] and row[1] and not row[0].startswith('%') and not row[0].startswith('Last') and not row[0].startswith('REQUIREMENT'):
+                # For outreach imports, start from row 2 (after header) and use date guessing
+                if data_type == 'outreach':
+                    data_start_row = 2  # Start from row 2 for outreach
+                    break
+                else:
+                    # For attendance imports, look for rows with dates
+                    try:
+                        date_str = row[0].strip()
+                        if date_str and any(char.isdigit() for char in date_str):
+                            data_start_row = i
+                            break
+                    except:
+                        continue
+        
+        # Process data rows starting from the identified data start row
+        for row_idx, row in enumerate(rows[data_start_row-1:], start=data_start_row):
+            if len(row) < 3:  # Need at least date, length, and one user column
+                continue
+            
+            # Skip rows that don't look like data (e.g., percentage rows, total rows)
+            if not row[0] or row[0].startswith('%') or row[0].startswith('Last') or row[0].startswith('REQUIREMENT') or row[0].strip().lower() == 'total':
+                continue
+            
+            # For outreach imports, allow empty meeting length (will default to 0)
+            if data_type == 'attendance' and not row[1]:
+                continue
+            
+            try:
+                # Parse date and extract description from first column
+                first_column = row[0].strip()
+                if not first_column:
+                    continue
+                
+                # Try to extract date and description from the first column
+                date = None
+                description = ""
+                
+                # Look for date patterns in the first column
+                import re
+                date_patterns = [
+                    r'(\d{1,2}/\d{1,2}/\d{2,4})',  # MM/DD/YYYY or MM/DD/YY
+                    r'(\d{4}-\d{1,2}-\d{1,2})',    # YYYY-MM-DD
+                    r'(\d{1,2}-\d{1,2}-\d{2,4})',  # MM-DD-YYYY or MM-DD-YY
+                ]
+                
+                date_match = None
+                for pattern in date_patterns:
+                    match = re.search(pattern, first_column)
+                    if match:
+                        date_match = match.group(1)
+                        break
+                
+                if date_match:
+                    # Extract the date part
+                    date_str = date_match
+                    # Extract description (everything except the date)
+                    description = first_column.replace(date_str, '').strip()
+                    # Clean up description (remove extra spaces, common prefixes)
+                    description = re.sub(r'^\s*[-,\s]+\s*', '', description)
+                    description = re.sub(r'\s+', ' ', description)
+                    
+                    # Parse the date
+                    for date_format in ['%m/%d/%Y', '%m/%d/%y', '%Y-%m-%d', '%m-%d-%Y', '%m-%d-%y']:
+                        try:
+                            date = datetime.strptime(date_str, date_format)
+                            break
+                        except ValueError:
+                            continue
+                else:
+                    # If no date pattern found, try parsing the entire first column as a date
+                    for date_format in ['%m/%d/%Y', '%m/%d/%y', '%Y-%m-%d', '%m-%d-%Y']:
+                        try:
+                            date = datetime.strptime(first_column, date_format)
+                            break
+                        except ValueError:
+                            continue
+                
+                if not date:
+                    # For outreach imports, try to guess the date
+                    if data_type == 'outreach':
+                        guessed_date = guess_date_for_outreach_row(rows, row_idx, data_start_row)
+                        if guessed_date:
+                            date = guessed_date
+                            description = first_column  # Use the entire first column as description
+                            details.append(f"Row {row_idx}: Guessed date {date.strftime('%Y-%m-%d')} for '{first_column}'")
+                        else:
+                            details.append(f"Row {row_idx}: Could not parse or guess date from '{first_column}'")
+                            continue
+                    else:
+                        details.append(f"Row {row_idx}: Could not parse date from '{first_column}'")
+                        continue
+                
+                # Parse meeting length
+                try:
+                    if not row[1] or row[1].strip() == '':
+                        # For outreach imports, default to 0 if meeting length is empty
+                        meeting_length = 0 if data_type == 'outreach' else None
+                        if meeting_length is None:
+                            details.append(f"Row {row_idx}: Missing meeting length")
+                            continue
+                    else:
+                        meeting_length = float(row[1])
+                        if meeting_length < 0:
+                            details.append(f"Row {row_idx}: Invalid meeting length '{row[1]}'")
+                            continue
+                except (ValueError, TypeError):
+                    details.append(f"Row {row_idx}: Could not parse meeting length '{row[1]}'")
+                    continue
+                
+                # Handle 0-hour meetings (bonus hours)
+                # These meetings allow users to attend more hours than the meeting length
+                is_bonus_meeting = (meeting_length == 0)
+                
+                # Determine meeting start time based on weekday/weekend
+                if date.weekday() < 5:  # Monday = 0, Sunday = 6
+                    # Weekday: 15:30
+                    start_time = date.replace(hour=15, minute=30, second=0, microsecond=0)
+                else:
+                    # Weekend: 10:00
+                    start_time = date.replace(hour=10, minute=0, second=0, microsecond=0)
+                
+                # Calculate end time
+                # For 0-hour meetings, use 0 duration
+                effective_meeting_length = meeting_length
+                end_time = start_time + timedelta(hours=effective_meeting_length)
+                
+                # Create meeting description
+                meeting_type = 'regular' if data_type == 'attendance' else 'outreach'
+                bonus_note = " (Bonus Hours)" if is_bonus_meeting else ""
+                if description:
+                    meeting_description = f"{meeting_type.title()} Meeting - {description} ({date.strftime('%B %d, %Y')}){bonus_note}"
+                else:
+                    meeting_description = f"{meeting_type.title()} Meeting - {date.strftime('%B %d, %Y')}{bonus_note}"
+                
+                # Check if meeting already exists
+                existing_meeting = MeetingHour.query.filter(
+                    MeetingHour.start_time == start_time,
+                    MeetingHour.meeting_type == meeting_type
+                ).first()
+                
+                if existing_meeting:
+                    meeting_hour = existing_meeting
+                    details.append(f"Row {row_idx}: Using existing meeting for {date.strftime('%Y-%m-%d')}")
+                else:
+                    # Create new meeting
+                    meeting_hour = MeetingHour(
+                        start_time=start_time,
+                        end_time=end_time,
+                        description=meeting_description,
+                        meeting_type=meeting_type,
+                        created_by=created_by_user_id
+                    )
+                    db.session.add(meeting_hour)
+                    db.session.flush()  # Get the ID
+                    meetings_created += 1
+                    bonus_note = " (bonus hours)" if is_bonus_meeting else ""
+                    details.append(f"Row {row_idx}: Created {meeting_type} meeting for {date.strftime('%Y-%m-%d')}" + (f" - {description}" if description else "") + bonus_note)
+                
+                # Process attendance data for each user
+                for user_idx, username in enumerate(usernames):
+                    if user_idx + 2 >= len(row):  # Not enough columns
+                        continue
+                    
+                    # Skip if we're beyond the valid data columns (after ignoring last columns)
+                    if user_idx + 2 >= len(row) - ignore_columns:
+                        continue
+                    
+                    hours_attended_str = row[user_idx + 2].strip()
+                    if not hours_attended_str or hours_attended_str in ['', '0', '0.0']:
+                        continue
+                    
+                    # Handle excused absence (*)
+                    if hours_attended_str == '*':
+                        user_id = username_to_user[username]
+                        
+                        # Check if excuse already exists
+                        existing_excuse = Excuse.query.filter_by(
+                            user_id=user_id,
+                            meeting_hour_id=meeting_hour.id
+                        ).first()
+                        
+                        if not existing_excuse:
+                            # Create new excuse
+                            excuse = Excuse(
+                                user_id=user_id,
+                                meeting_hour_id=meeting_hour.id,
+                                reporting_period_id=period_id,
+                                reason="Imported from CSV - excused absence",
+                                created_by=created_by_user_id
+                            )
+                            db.session.add(excuse)
+                            excuses_created += 1
+                            details.append(f"Row {row_idx}: Created excused absence for {username}")
+                        else:
+                            details.append(f"Row {row_idx}: Excuse already exists for {username}")
+                        continue
+                    
+                    try:
+                        hours_attended = float(hours_attended_str)
+                        if hours_attended <= 0:
+                            continue
+                        
+                        # For 0-hour meetings (bonus hours), allow any amount of attendance
+                        # For regular meetings, validate against meeting length
+                        if not is_bonus_meeting and hours_attended > meeting_length:
+                            details.append(f"Row {row_idx}: Hours attended ({hours_attended}h) exceeds meeting length ({meeting_length}h) for {username}")
+                            continue
+                        
+                        # Check if attendance already logged
+                        user_id = username_to_user[username]
+                        existing_log = AttendanceLog.query.filter_by(
+                            user_id=user_id,
+                            meeting_hour_id=meeting_hour.id
+                        ).first()
+                        
+                        # Determine if this is partial attendance
+                        # For bonus meetings, never mark as partial since hours can exceed meeting length
+                        is_partial = False if is_bonus_meeting else (hours_attended < meeting_length)
+                        
+                        # For CSV imports, always store the actual hours attended
+                        # This ensures accurate calculation regardless of partial/full attendance
+                        partial_hours_value = hours_attended
+                        
+                        if existing_log:
+                            # Update existing log
+                            existing_log.partial_hours = partial_hours_value
+                            existing_log.is_partial = is_partial
+                            bonus_note = " (bonus hours)" if is_bonus_meeting else ""
+                            details.append(f"Row {row_idx}: Updated attendance for {username}: {hours_attended}h{bonus_note}")
+                        else:
+                            # Create new attendance log
+                            attendance_log = AttendanceLog(
+                                user_id=user_id,
+                                meeting_hour_id=meeting_hour.id,
+                                partial_hours=partial_hours_value,
+                                is_partial=is_partial,
+                                notes=f"Imported from CSV{' (bonus hours)' if is_bonus_meeting else ''}"
+                            )
+                            db.session.add(attendance_log)
+                            attendance_logs_created += 1
+                            bonus_note = " (bonus hours)" if is_bonus_meeting else ""
+                            details.append(f"Row {row_idx}: Logged attendance for {username}: {hours_attended}h{bonus_note}")
+                    
+                    except (ValueError, TypeError):
+                        details.append(f"Row {row_idx}: Invalid hours for {username}: '{hours_attended_str}'")
+                        continue
+            
+            except Exception as e:
+                details.append(f"Row {row_idx}: Error processing row: {str(e)}")
+                continue
+        
+        return {
+            'error': None,
+            'meetings_created': meetings_created,
+            'attendance_logs_created': attendance_logs_created,
+            'excuses_created': excuses_created,
+            'details': details
+        }
+    
+    except Exception as e:
+        return {'error': f'Error parsing CSV: {str(e)}', 'meetings_created': 0, 'attendance_logs_created': 0, 'excuses_created': 0, 'details': []}
 
 # Import Slack routes (moved to avoid circular imports)
 
@@ -668,6 +1139,83 @@ def deny_excuse_request(request_id):
     
     flash(f'Excuse request denied for {excuse_request.user.username}.', 'success')
     return redirect(url_for('admin_excuse_requests'))
+
+@app.route('/admin/import_csv', methods=['POST'])
+@login_required
+def import_csv():
+    if not current_user.is_admin:
+        return jsonify({'error': 'Access denied. Admin privileges required.'}), 403
+    
+    try:
+        # Get form data
+        csv_file = request.files.get('csv_file')
+        data_type = request.form.get('data_type')  # 'attendance' or 'outreach'
+        period_action = request.form.get('period_action')  # 'new' or 'existing'
+        period_id = request.form.get('period_id')  # Only used if period_action is 'existing'
+        period_name = request.form.get('period_name')  # Only used if period_action is 'new'
+        period_start_date = request.form.get('period_start_date')  # Only used if period_action is 'new'
+        period_end_date = request.form.get('period_end_date')  # Only used if period_action is 'new'
+        
+        if not csv_file or not data_type or not period_action:
+            return jsonify({'error': 'Missing required fields'}), 400
+        
+        if csv_file.filename == '':
+            return jsonify({'error': 'No file selected'}), 400
+        
+        if not csv_file.filename.lower().endswith('.csv'):
+            return jsonify({'error': 'File must be a CSV file'}), 400
+        
+        # Determine the reporting period
+        if period_action == 'new':
+            if not all([period_name, period_start_date, period_end_date]):
+                return jsonify({'error': 'Missing required fields for new period'}), 400
+            
+            # Create new reporting period
+            start_date = datetime.strptime(period_start_date, "%Y-%m-%d")
+            end_date = datetime.strptime(period_end_date, "%Y-%m-%d")
+            
+            period = ReportingPeriod(
+                name=period_name,
+                start_date=start_date,
+                end_date=end_date,
+                created_by=current_user.id
+            )
+            db.session.add(period)
+            db.session.flush()  # Get the ID
+            period_id = period.id
+        else:
+            if not period_id:
+                return jsonify({'error': 'Period ID required for existing period'}), 400
+            period = ReportingPeriod.query.get(period_id)
+            if not period:
+                return jsonify({'error': 'Reporting period not found'}), 404
+        
+        # Parse CSV file
+        csv_data = csv_file.read().decode('utf-8')
+        csv_reader = csv.reader(io.StringIO(csv_data))
+        rows = list(csv_reader)
+        
+        if len(rows) < 2:
+            return jsonify({'error': 'CSV file must have at least 2 rows (header and data)'}), 400
+        
+        # Parse the CSV data
+        result = parse_csv_attendance_data(rows, data_type, period_id, current_user.id)
+        
+        if result['error']:
+            return jsonify({'error': result['error']}), 400
+        
+        # Commit all changes
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': f'Successfully imported {result["meetings_created"]} meetings, {result["attendance_logs_created"]} attendance records, and {result["excuses_created"]} excused absences',
+            'details': result['details']
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': f'Error importing CSV: {str(e)}'}), 500
 
 if __name__ == '__main__':
     with app.app_context():

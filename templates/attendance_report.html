@@ -30,10 +30,9 @@
                             <tr>
                                 <th>User</th>
                                 <th>Regular Attendance %</th>
-                                <th>Regular Attended</th>
-                                <th>Partial Hours</th>
-                                <th>Regular Excused</th>
-                                <th>Regular Total</th>
+                                <th>Regular Hours Attended</th>
+                                <th>Regular Hours Excused</th>
+                                <th>Regular Total Hours</th>
                                 <th>Outreach Hours</th>
                                 <th>Outreach Attended</th>
                                 <th>Team (60%/12h)</th>
@@ -54,16 +53,9 @@
                                         {{ user_data.regular_meetings.attendance_percentage }}%
                                     </span>
                                 </td>
-                                <td>{{ user_data.regular_meetings.attended }}</td>
-                                <td>
-                                    {% if user_data.regular_meetings.partial_hours > 0 %}
-                                        <span class="badge bg-info">{{ user_data.regular_meetings.partial_hours }}h</span>
-                                    {% else %}
-                                        <span class="text-muted">-</span>
-                                    {% endif %}
-                                </td>
-                                <td>{{ user_data.regular_meetings.excused }}</td>
-                                <td>{{ user_data.regular_meetings.total }}</td>
+                                <td>{{ user_data.regular_meetings.attended_hours }}h</td>
+                                <td>{{ user_data.regular_meetings.excused_hours }}h</td>
+                                <td>{{ user_data.regular_meetings.total_hours }}h</td>
                                 <td>
                                     <span class="badge {% if user_data.outreach_hours.attended_hours >= 18 %}bg-success{% elif user_data.outreach_hours.attended_hours >= 12 %}bg-warning{% else %}bg-danger{% endif %}">
                                         {{ user_data.outreach_hours.attended_hours }}h
@@ -159,10 +151,10 @@
 <script>
 function exportToCSV() {
     // Create CSV content
-    let csvContent = "User,Attendance %,Attended,Excused,Total,Team Requirement,Travel Requirement\n";
+    let csvContent = "User,Regular Attendance %,Regular Hours Attended,Regular Hours Excused,Regular Total Hours,Outreach Hours Attended,Outreach Total Hours,Team Requirement,Travel Requirement\n";
     
     {% for user_data in report_data %}
-    csvContent += "{{ user_data.user.username }},{{ user_data.attendance_percentage }}%,{{ user_data.attended_meetings }},{{ user_data.excused_meetings }},{{ user_data.total_meetings }},{% if user_data.meets_team_requirement %}Yes{% else %}No{% endif %},{% if user_data.meets_travel_requirement %}Yes{% else %}No{% endif %}\n";
+    csvContent += "{{ user_data.user.username }},{{ user_data.regular_meetings.attendance_percentage }}%,{{ user_data.regular_meetings.attended_hours }},{{ user_data.regular_meetings.excused_hours }},{{ user_data.regular_meetings.total_hours }},{{ user_data.outreach_hours.attended_hours }},{{ user_data.outreach_hours.total_hours }},{% if user_data.regular_meetings.meets_team_requirement %}Yes{% else %}No{% endif %},{% if user_data.regular_meetings.meets_travel_requirement %}Yes{% else %}No{% endif %}\n";
     {% endfor %}
     
     // Download CSV
