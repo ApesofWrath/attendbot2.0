@@ -26,8 +26,13 @@
                 </button>
             </li>
             <li class="nav-item" role="presentation">
-                <button class="nav-link" id="meetings-tab" data-bs-toggle="tab" data-bs-target="#meetings" type="button" role="tab" aria-controls="meetings" aria-selected="false">
-                    <i class="fas fa-calendar-alt"></i> Meetings
+                <button class="nav-link" id="regular-meetings-tab" data-bs-toggle="tab" data-bs-target="#regular-meetings" type="button" role="tab" aria-controls="regular-meetings" aria-selected="false">
+                    <i class="fas fa-calendar-check"></i> Regular Meetings
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="outreach-tab" data-bs-toggle="tab" data-bs-target="#outreach" type="button" role="tab" aria-controls="outreach" aria-selected="false">
+                    <i class="fas fa-handshake"></i> Outreach Events
                 </button>
             </li>
         </ul>
@@ -145,23 +150,22 @@
         </div>
     </div>
 
-    <!-- Meetings Tab -->
-    <div class="tab-pane fade" id="meetings" role="tabpanel" aria-labelledby="meetings-tab">
+    <!-- Regular Meetings Tab -->
+    <div class="tab-pane fade" id="regular-meetings" role="tabpanel" aria-labelledby="regular-meetings-tab">
         <div class="row mt-4">
             <div class="col-12">
                 <div class="card">
                     <div class="card-header">
-                        <h5><i class="fas fa-calendar-alt"></i> Meetings in {{ period.name }}</h5>
+                        <h5><i class="fas fa-calendar-check"></i> Regular Meetings in {{ period.name }}</h5>
                     </div>
                     <div class="card-body">
-                        {% if meetings_data %}
+                        {% if regular_meetings_data %}
                         <div class="table-responsive">
                             <table class="table table-hover">
                                 <thead>
                                     <tr>
                                         <th>Date</th>
                                         <th>Meeting</th>
-                                        <th>Type</th>
                                         <th>Duration</th>
                                         <th>Attended</th>
                                         <th>Excused</th>
@@ -170,7 +174,7 @@
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {% for meeting_data in meetings_data %}
+                                    {% for meeting_data in regular_meetings_data %}
                                     <tr>
                                         <td>{{ meeting_data.meeting.start_time.strftime('%Y-%m-%d') }}</td>
                                         <td>
@@ -178,13 +182,6 @@
                                             <small class="text-muted">
                                                 {{ meeting_data.meeting.start_time.strftime('%H:%M') }} - {{ meeting_data.meeting.end_time.strftime('%H:%M') }}
                                             </small>
-                                        </td>
-                                        <td>
-                                            {% if meeting_data.meeting.meeting_type == 'regular' %}
-                                                <span class="badge bg-primary">Regular</span>
-                                            {% else %}
-                                                <span class="badge bg-success">Outreach</span>
-                                            {% endif %}
                                         </td>
                                         <td>{{ meeting_data.total_meeting_hours }}h</td>
                                         <td>
@@ -225,37 +222,32 @@
                             </table>
                         </div>
                         
-                        <!-- Meeting Summary Statistics -->
+                        <!-- Regular Meeting Summary Statistics -->
                         <div class="row mt-4">
-                            <div class="col-md-3">
+                            <div class="col-md-4">
                                 <div class="card bg-light">
                                     <div class="card-body text-center">
-                                        <h5 class="text-primary">{{ meetings_data|length }}</h5>
-                                        <p class="text-muted">Total Meetings</p>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="col-md-3">
-                                <div class="card bg-light">
-                                    <div class="card-body text-center">
-                                        <h5 class="text-info">{{ meetings_data|selectattr('meeting.meeting_type', 'equalto', 'regular')|list|length }}</h5>
+                                        <h5 class="text-primary">{{ regular_meetings_data|length }}</h5>
                                         <p class="text-muted">Regular Meetings</p>
                                     </div>
                                 </div>
                             </div>
-                            <div class="col-md-3">
+                            <div class="col-md-4">
                                 <div class="card bg-light">
                                     <div class="card-body text-center">
-                                        <h5 class="text-success">{{ meetings_data|selectattr('meeting.meeting_type', 'equalto', 'outreach')|list|length }}</h5>
-                                        <p class="text-muted">Outreach Events</p>
+                                        <h5 class="text-info">
+                                            {% set total_regular_hours = regular_meetings_data|sum(attribute='total_meeting_hours') %}
+                                            {{ "%.1f"|format(total_regular_hours) }}h
+                                        </h5>
+                                        <p class="text-muted">Total Hours</p>
                                     </div>
                                 </div>
                             </div>
-                            <div class="col-md-3">
+                            <div class="col-md-4">
                                 <div class="card bg-light">
                                     <div class="card-body text-center">
                                         <h5 class="text-warning">
-                                            {% set avg_attendance = (meetings_data|sum(attribute='attendance_percentage') / meetings_data|length) if meetings_data|length > 0 else 0 %}
+                                            {% set avg_attendance = (regular_meetings_data|sum(attribute='attendance_percentage') / regular_meetings_data|length) if regular_meetings_data|length > 0 else 0 %}
                                             {{ "%.1f"|format(avg_attendance) }}%
                                         </h5>
                                         <p class="text-muted">Avg Attendance</p>
@@ -264,7 +256,121 @@
                             </div>
                         </div>
                         {% else %}
-                        <p class="text-muted">No meetings found for this period.</p>
+                        <p class="text-muted">No regular meetings found for this period.</p>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Outreach Events Tab -->
+    <div class="tab-pane fade" id="outreach" role="tabpanel" aria-labelledby="outreach-tab">
+        <div class="row mt-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h5><i class="fas fa-handshake"></i> Outreach Events in {{ period.name }}</h5>
+                    </div>
+                    <div class="card-body">
+                        {% if outreach_meetings_data %}
+                        <div class="table-responsive">
+                            <table class="table table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>Date</th>
+                                        <th>Event</th>
+                                        <th>Duration</th>
+                                        <th>Attended</th>
+                                        <th>Excused</th>
+                                        <th>Attendance %</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for meeting_data in outreach_meetings_data %}
+                                    <tr>
+                                        <td>{{ meeting_data.meeting.start_time.strftime('%Y-%m-%d') }}</td>
+                                        <td>
+                                            <strong>{{ meeting_data.meeting.description }}</strong><br>
+                                            <small class="text-muted">
+                                                {{ meeting_data.meeting.start_time.strftime('%H:%M') }} - {{ meeting_data.meeting.end_time.strftime('%H:%M') }}
+                                            </small>
+                                        </td>
+                                        <td>{{ meeting_data.total_meeting_hours }}h</td>
+                                        <td>
+                                            <strong>{{ meeting_data.attendance_count }}</strong> members<br>
+                                            <small class="text-muted">{{ meeting_data.total_attended_hours }}h total</small>
+                                        </td>
+                                        <td>
+                                            {% if meeting_data.excused_count > 0 %}
+                                                <span class="badge bg-warning">{{ meeting_data.excused_count }}</span>
+                                            {% else %}
+                                                <span class="text-muted">0</span>
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            <div class="progress" style="height: 20px;">
+                                                <div class="progress-bar 
+                                                    {% if meeting_data.attendance_percentage >= 80 %}bg-success
+                                                    {% elif meeting_data.attendance_percentage >= 60 %}bg-info
+                                                    {% elif meeting_data.attendance_percentage >= 40 %}bg-warning
+                                                    {% else %}bg-danger{% endif %}" 
+                                                    role="progressbar" 
+                                                    style="width: {{ meeting_data.attendance_percentage }}%" 
+                                                    aria-valuenow="{{ meeting_data.attendance_percentage }}" 
+                                                    aria-valuemin="0" aria-valuemax="100">
+                                                    {{ meeting_data.attendance_percentage }}%
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td>
+                                            <a href="{{ url_for('meeting_detail', period_id=period.id, meeting_id=meeting_data.meeting.id) }}" 
+                                               class="btn btn-sm btn-outline-info">
+                                                <i class="fas fa-eye"></i> View Details
+                                            </a>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                        
+                        <!-- Outreach Summary Statistics -->
+                        <div class="row mt-4">
+                            <div class="col-md-4">
+                                <div class="card bg-light">
+                                    <div class="card-body text-center">
+                                        <h5 class="text-success">{{ outreach_meetings_data|length }}</h5>
+                                        <p class="text-muted">Outreach Events</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="card bg-light">
+                                    <div class="card-body text-center">
+                                        <h5 class="text-info">
+                                            {% set total_outreach_hours = outreach_meetings_data|sum(attribute='total_meeting_hours') %}
+                                            {{ "%.1f"|format(total_outreach_hours) }}h
+                                        </h5>
+                                        <p class="text-muted">Total Hours</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="card bg-light">
+                                    <div class="card-body text-center">
+                                        <h5 class="text-warning">
+                                            {% set avg_attendance = (outreach_meetings_data|sum(attribute='attendance_percentage') / outreach_meetings_data|length) if outreach_meetings_data|length > 0 else 0 %}
+                                            {{ "%.1f"|format(avg_attendance) }}%
+                                        </h5>
+                                        <p class="text-muted">Avg Attendance</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        {% else %}
+                        <p class="text-muted">No outreach events found for this period.</p>
                         {% endif %}
                     </div>
                 </div>

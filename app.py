@@ -765,13 +765,14 @@ def attendance_report(period_id):
     period = ReportingPeriod.query.get_or_404(period_id)
     report_data = get_attendance_report_data(period_id)
     
-    # Get meetings data for the meeting tab
-    meetings_data = get_meetings_data_for_period(period_id)
+    # Get meetings data for the meeting tabs
+    regular_meetings_data, outreach_meetings_data = get_separated_meetings_data_for_period(period_id)
     
     return render_template('attendance_report.html', 
                          period=period,
                          report_data=report_data,
-                         meetings_data=meetings_data)
+                         regular_meetings_data=regular_meetings_data,
+                         outreach_meetings_data=outreach_meetings_data)
 
 @app.route('/reports/<int:period_id>/meeting/<int:meeting_id>')
 @login_required
@@ -1012,6 +1013,56 @@ def get_meetings_data_for_period(period_id):
         })
     
     return meetings_data
+
+def get_separated_meetings_data_for_period(period_id):
+    """Get separated regular and outreach meetings data for a period"""
+    period = ReportingPeriod.query.get(period_id)
+    if not period:
+        return [], []
+    
+    # Get all meetings in the period
+    meetings = MeetingHour.query.filter(
+        MeetingHour.start_time >= period.start_date,
+        MeetingHour.start_time <= period.end_date
+    ).order_by(MeetingHour.start_time.desc()).all()
+    
+    regular_meetings_data = []
+    outreach_meetings_data = []
+    
+    for meeting in meetings:
+        # Get attendance logs for this meeting
+        attendance_logs = AttendanceLog.query.filter_by(meeting_hour_id=meeting.id).all()
+        
+        # Calculate attendance statistics
+        total_attended_hours = sum(
+            log.partial_hours if log.partial_hours is not None 
+            else (meeting.end_time - meeting.start_time).total_seconds() / 3600
+            for log in attendance_logs
+        )
+        
+        total_meeting_hours = (meeting.end_time - meeting.start_time).total_seconds() / 3600
+        attendance_count = len(attendance_logs)
+        
+        # Get excuses for this meeting
+        excuses = Excuse.query.filter_by(meeting_hour_id=meeting.id).all()
+        excused_count = len(excuses)
+        
+        meeting_data = {
+            'meeting': meeting,
+            'attendance_count': attendance_count,
+            'excused_count': excused_count,
+            'total_attended_hours': round(total_attended_hours, 2),
+            'total_meeting_hours': round(total_meeting_hours, 2),
+            'attendance_percentage': round((total_attended_hours / total_meeting_hours * 100) if total_meeting_hours > 0 else 0, 1)
+        }
+        
+        # Separate by meeting type
+        if meeting.meeting_type == 'regular':
+            regular_meetings_data.append(meeting_data)
+        else:
+            outreach_meetings_data.append(meeting_data)
+    
+    return regular_meetings_data, outreach_meetings_data
 
 def get_meeting_attendance_detail(meeting_id):
     """Get detailed attendance data for a specific meeting"""
