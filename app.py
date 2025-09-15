@@ -441,6 +441,226 @@ def delete_user(user_id):
     
     return jsonify({'success': True, 'message': f'User {user.username} deleted'})
 
+@app.route('/admin/users/<int:user_id>/edit', methods=['POST'])
+@login_required
+def edit_user(user_id):
+    if not current_user.is_admin:
+        return jsonify({'error': 'Access denied'}), 403
+    
+    try:
+        user = User.query.get_or_404(user_id)
+        data = request.get_json()
+        
+        # Get form data
+        username = data.get('username', '').strip()
+        email = data.get('email', '').strip()
+        slack_user_id = data.get('slack_user_id', '').strip()
+        google_id = data.get('google_id', '').strip()
+        
+        # Validate required fields
+        if not username or not email:
+            return jsonify({'error': 'Username and email are required'}), 400
+        
+        # Check for duplicate username (excluding current user)
+        existing_user = User.query.filter(
+            User.username == username,
+            User.id != user_id
+        ).first()
+        if existing_user:
+            return jsonify({'error': 'Username already exists'}), 400
+        
+        # Check for duplicate email (excluding current user)
+        existing_email = User.query.filter(
+            User.email == email,
+            User.id != user_id
+        ).first()
+        if existing_email:
+            return jsonify({'error': 'Email already exists'}), 400
+        
+        # Check for duplicate Slack ID (excluding current user)
+        if slack_user_id:
+            existing_slack = User.query.filter(
+                User.slack_user_id == slack_user_id,
+                User.id != user_id
+            ).first()
+            if existing_slack:
+                return jsonify({'error': 'Slack ID already exists'}), 400
+        
+        # Check for duplicate Google ID (excluding current user)
+        if google_id:
+            existing_google = User.query.filter(
+                User.google_id == google_id,
+                User.id != user_id
+            ).first()
+            if existing_google:
+                return jsonify({'error': 'Google ID already exists'}), 400
+        
+        # Update user data
+        old_username = user.username
+        user.username = username
+        user.email = email
+        user.slack_user_id = slack_user_id if slack_user_id else None
+        user.google_id = google_id if google_id else None
+        
+        db.session.commit()
+        
+        return jsonify({
+            'success': True, 
+            'message': f'User profile updated successfully',
+            'user': {
+                'id': user.id,
+                'username': user.username,
+                'email': user.email,
+                'slack_user_id': user.slack_user_id,
+                'google_id': user.google_id,
+                'is_admin': user.is_admin,
+                'created_at': user.created_at.isoformat(),
+                'last_login': user.last_login.isoformat() if user.last_login else None
+            }
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': f'Error updating user profile: {str(e)}'}), 500
+
+@app.route('/admin/users/combine', methods=['POST'])
+@login_required
+def combine_users():
+    if not current_user.is_admin:
+        return jsonify({'error': 'Access denied'}), 403
+    
+    try:
+        data = request.get_json()
+        primary_user_id = data.get('primary_user_id')
+        secondary_user_id = data.get('secondary_user_id')
+        
+        if not primary_user_id or not secondary_user_id:
+            return jsonify({'error': 'Both primary and secondary user IDs are required'}), 400
+        
+        if primary_user_id == secondary_user_id:
+            return jsonify({'error': 'Cannot combine a user with themselves'}), 400
+        
+        # Get users
+        primary_user = User.query.get(primary_user_id)
+        secondary_user = User.query.get(secondary_user_id)
+        
+        if not primary_user or not secondary_user:
+            return jsonify({'error': 'One or both users not found'}), 404
+        
+        # Prevent combining with current user
+        if secondary_user.id == current_user.id:
+            return jsonify({'error': 'Cannot combine with your own account'}), 400
+        
+        # Combine user data
+        result = combine_user_data(primary_user, secondary_user)
+        
+        if result['error']:
+            return jsonify({'error': result['error']}), 400
+        
+        return jsonify({
+            'success': True, 
+            'message': f'Successfully combined {secondary_user.username} into {primary_user.username}',
+            'details': result['details']
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': f'Error combining users: {str(e)}'}), 500
+
+def combine_user_data(primary_user, secondary_user):
+    """
+    Combine secondary user data into primary user and delete secondary user.
+    
+    Args:
+        primary_user: User object to keep
+        secondary_user: User object to merge and delete
+    
+    Returns:
+        dict with success status and details
+    """
+    try:
+        details = []
+        
+        # Update primary user with data from secondary user if missing
+        updated_fields = []
+        
+        if not primary_user.slack_user_id and secondary_user.slack_user_id:
+            primary_user.slack_user_id = secondary_user.slack_user_id
+            updated_fields.append('Slack ID')
+        
+        if not primary_user.google_id and secondary_user.google_id:
+            primary_user.google_id = secondary_user.google_id
+            updated_fields.append('Google ID')
+        
+        # Keep the most recent last_login
+        if secondary_user.last_login and (not primary_user.last_login or secondary_user.last_login > primary_user.last_login):
+            primary_user.last_login = secondary_user.last_login
+            updated_fields.append('Last Login')
+        
+        if updated_fields:
+            details.append(f"Updated primary user with: {', '.join(updated_fields)}")
+        
+        # Transfer attendance logs
+        attendance_logs = AttendanceLog.query.filter_by(user_id=secondary_user.id).all()
+        for log in attendance_logs:
+            log.user_id = primary_user.id
+        details.append(f"Transferred {len(attendance_logs)} attendance logs")
+        
+        # Transfer excuses
+        excuses = Excuse.query.filter_by(user_id=secondary_user.id).all()
+        for excuse in excuses:
+            excuse.user_id = primary_user.id
+        details.append(f"Transferred {len(excuses)} excuses")
+        
+        # Transfer excuse requests (both as user and reviewer)
+        user_excuse_requests = ExcuseRequest.query.filter_by(user_id=secondary_user.id).all()
+        for request in user_excuse_requests:
+            request.user_id = primary_user.id
+        details.append(f"Transferred {len(user_excuse_requests)} excuse requests (as user)")
+        
+        reviewer_excuse_requests = ExcuseRequest.query.filter_by(reviewed_by=secondary_user.id).all()
+        for request in reviewer_excuse_requests:
+            request.reviewed_by = primary_user.id
+        details.append(f"Transferred {len(reviewer_excuse_requests)} excuse requests (as reviewer)")
+        
+        # Transfer created excuses
+        created_excuses = Excuse.query.filter_by(created_by=secondary_user.id).all()
+        for excuse in created_excuses:
+            excuse.created_by = primary_user.id
+        details.append(f"Transferred {len(created_excuses)} created excuses")
+        
+        # Transfer created meetings
+        created_meetings = MeetingHour.query.filter_by(created_by=secondary_user.id).all()
+        for meeting in created_meetings:
+            meeting.created_by = primary_user.id
+        details.append(f"Transferred {len(created_meetings)} created meetings")
+        
+        # Transfer created reporting periods
+        created_periods = ReportingPeriod.query.filter_by(created_by=secondary_user.id).all()
+        for period in created_periods:
+            period.created_by = primary_user.id
+        details.append(f"Transferred {len(created_periods)} created reporting periods")
+        
+        # Delete secondary user
+        db.session.delete(secondary_user)
+        
+        # Commit all changes
+        db.session.commit()
+        
+        details.append(f"Deleted secondary user: {secondary_user.username}")
+        
+        return {
+            'error': None,
+            'details': details
+        }
+        
+    except Exception as e:
+        db.session.rollback()
+        return {
+            'error': f'Error combining users: {str(e)}',
+            'details': []
+        }
+
 @app.route('/reports/<int:period_id>')
 @login_required
 def attendance_report(period_id):

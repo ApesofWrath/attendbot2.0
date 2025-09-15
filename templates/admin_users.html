@@ -17,8 +17,16 @@
 <div class="row mt-4">
     <div class="col-12">
         <div class="card">
-            <div class="card-header">
+            <div class="card-header d-flex justify-content-between align-items-center">
                 <h5><i class="fas fa-users"></i> All Users</h5>
+                <div>
+                    <button class="btn btn-primary btn-sm" onclick="toggleCombineMode()">
+                        <i class="fas fa-compress-alt"></i> Combine Users
+                    </button>
+                    <button class="btn btn-secondary btn-sm" onclick="cancelCombineMode()" style="display: none;" id="cancelCombineBtn">
+                        <i class="fas fa-times"></i> Cancel
+                    </button>
+                </div>
             </div>
             <div class="card-body">
                 {% if users %}
@@ -26,6 +34,7 @@
                     <table class="table table-hover">
                         <thead>
                             <tr>
+                                <th id="selectHeader" style="display: none;">Select</th>
                                 <th>User</th>
                                 <th>Email</th>
                                 <th>Slack ID</th>
@@ -39,6 +48,14 @@
                         <tbody>
                             {% for user in users %}
                             <tr>
+                                <td id="selectCell_{{ user.id }}" style="display: none;">
+                                    <div class="form-check">
+                                        <input class="form-check-input user-checkbox" type="radio" name="userSelection" value="{{ user.id }}" id="user_{{ user.id }}">
+                                        <label class="form-check-label" for="user_{{ user.id }}">
+                                            Select
+                                        </label>
+                                    </div>
+                                </td>
                                 <td>
                                     <strong>{{ user.username }}</strong>
                                     {% if user.id == current_user.id %}
@@ -76,7 +93,11 @@
                                     {% endif %}
                                 </td>
                                 <td>
-                                    <div class="btn-group" role="group">
+                                    <div class="btn-group" role="group" id="actions_{{ user.id }}">
+                                        <button class="btn btn-sm btn-outline-primary" 
+                                                onclick="editUser({{ user.id }}, '{{ user.username }}', '{{ user.email }}', '{{ user.slack_user_id or '' }}', '{{ user.google_id or '' }}')">
+                                            <i class="fas fa-edit"></i> Edit
+                                        </button>
                                         {% if user.id != current_user.id %}
                                             <button class="btn btn-sm btn-outline-warning" 
                                                     onclick="toggleAdmin({{ user.id }}, {{ user.is_admin|lower }})">
@@ -90,6 +111,14 @@
                                         {% else %}
                                             <span class="text-muted">Self</span>
                                         {% endif %}
+                                    </div>
+                                    <div id="combineActions_{{ user.id }}" style="display: none;">
+                                        <button class="btn btn-sm btn-success" onclick="selectAsPrimary({{ user.id }}, '{{ user.username }}')">
+                                            <i class="fas fa-star"></i> Primary
+                                        </button>
+                                        <button class="btn btn-sm btn-info" onclick="selectAsSecondary({{ user.id }}, '{{ user.username }}')">
+                                            <i class="fas fa-arrow-right"></i> Secondary
+                                        </button>
                                     </div>
                                 </td>
                             </tr>
@@ -123,10 +152,347 @@
         </div>
     </div>
 </div>
+
+<!-- Edit User Modal -->
+<div class="modal fade" id="editUserModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Edit User Profile</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="editUserForm">
+                    <input type="hidden" id="editUserId" name="user_id">
+                    
+                    <div class="mb-3">
+                        <label for="editUsername" class="form-label">Username *</label>
+                        <input type="text" class="form-control" id="editUsername" name="username" required>
+                        <div class="invalid-feedback" id="usernameError"></div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="editEmail" class="form-label">Email *</label>
+                        <input type="email" class="form-control" id="editEmail" name="email" required>
+                        <div class="invalid-feedback" id="emailError"></div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="editSlackId" class="form-label">Slack User ID</label>
+                        <input type="text" class="form-control" id="editSlackId" name="slack_user_id" placeholder="e.g., U1234567890">
+                        <div class="form-text">Optional: Slack user identifier for bot integration</div>
+                        <div class="invalid-feedback" id="slackIdError"></div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="editGoogleId" class="form-label">Google ID</label>
+                        <input type="text" class="form-control" id="editGoogleId" name="google_id" placeholder="e.g., 123456789012345678901">
+                        <div class="form-text">Optional: Google account identifier for OAuth login</div>
+                        <div class="invalid-feedback" id="googleIdError"></div>
+                    </div>
+                    
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle"></i>
+                        <strong>Note:</strong> Changes will take effect immediately. The user will need to log out and log back in to see updated information in their session.
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="saveUserEdit()">
+                    <i class="fas fa-save"></i> Save Changes
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Combine Users Modal -->
+<div class="modal fade" id="combineModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Combine Users</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6>Primary User (Keep)</h6>
+                        <div id="primaryUserInfo" class="border p-3 rounded bg-light">
+                            <p class="text-muted">Select a user to be the primary user (the one to keep)</p>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <h6>Secondary User (Merge & Delete)</h6>
+                        <div id="secondaryUserInfo" class="border p-3 rounded bg-light">
+                            <p class="text-muted">Select a user to merge into the primary user</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="mt-3">
+                    <h6>What will be combined:</h6>
+                    <ul class="list-unstyled">
+                        <li><i class="fas fa-check text-success"></i> Attendance logs</li>
+                        <li><i class="fas fa-check text-success"></i> Excuses and excuse requests</li>
+                        <li><i class="fas fa-check text-success"></i> Created meetings and reporting periods</li>
+                        <li><i class="fas fa-check text-success"></i> User profile data (Slack ID, Google ID, etc.)</li>
+                    </ul>
+                    <div class="alert alert-warning">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <strong>Warning:</strong> The secondary user will be permanently deleted after merging. This action cannot be undone.
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-danger" id="combineUsersBtn" disabled onclick="executeCombine()">
+                    <i class="fas fa-compress-alt"></i> Combine Users
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
 <script>
+let combineMode = false;
+let selectedPrimary = null;
+let selectedSecondary = null;
+
+function toggleCombineMode() {
+    combineMode = !combineMode;
+    
+    if (combineMode) {
+        // Show combine mode UI
+        document.getElementById('selectHeader').style.display = 'table-cell';
+        document.querySelectorAll('[id^="selectCell_"]').forEach(cell => {
+            cell.style.display = 'table-cell';
+        });
+        document.querySelectorAll('[id^="actions_"]').forEach(actions => {
+            actions.style.display = 'none';
+        });
+        document.querySelectorAll('[id^="combineActions_"]').forEach(actions => {
+            actions.style.display = 'block';
+        });
+        document.getElementById('cancelCombineBtn').style.display = 'inline-block';
+    } else {
+        cancelCombineMode();
+    }
+}
+
+function cancelCombineMode() {
+    combineMode = false;
+    selectedPrimary = null;
+    selectedSecondary = null;
+    
+    // Hide combine mode UI
+    document.getElementById('selectHeader').style.display = 'none';
+    document.querySelectorAll('[id^="selectCell_"]').forEach(cell => {
+        cell.style.display = 'none';
+    });
+    document.querySelectorAll('[id^="actions_"]').forEach(actions => {
+        actions.style.display = 'block';
+    });
+    document.querySelectorAll('[id^="combineActions_"]').forEach(actions => {
+        actions.style.display = 'none';
+    });
+    document.getElementById('cancelCombineBtn').style.display = 'none';
+    
+    // Clear selections
+    document.querySelectorAll('.user-checkbox').forEach(checkbox => {
+        checkbox.checked = false;
+    });
+    
+    // Reset modal
+    document.getElementById('primaryUserInfo').innerHTML = '<p class="text-muted">Select a user to be the primary user (the one to keep)</p>';
+    document.getElementById('secondaryUserInfo').innerHTML = '<p class="text-muted">Select a user to merge into the primary user</p>';
+    document.getElementById('combineUsersBtn').disabled = true;
+}
+
+function selectAsPrimary(userId, username) {
+    selectedPrimary = { id: userId, username: username };
+    document.getElementById('primaryUserInfo').innerHTML = `
+        <div class="d-flex align-items-center">
+            <i class="fas fa-star text-warning me-2"></i>
+            <strong>${username}</strong>
+        </div>
+        <small class="text-muted">This user will be kept and receive all data from the secondary user</small>
+    `;
+    updateCombineButton();
+}
+
+function selectAsSecondary(userId, username) {
+    selectedSecondary = { id: userId, username: username };
+    document.getElementById('secondaryUserInfo').innerHTML = `
+        <div class="d-flex align-items-center">
+            <i class="fas fa-arrow-right text-info me-2"></i>
+            <strong>${username}</strong>
+        </div>
+        <small class="text-muted">This user will be merged into the primary user and deleted</small>
+    `;
+    updateCombineButton();
+}
+
+function updateCombineButton() {
+    const combineBtn = document.getElementById('combineUsersBtn');
+    if (selectedPrimary && selectedSecondary) {
+        combineBtn.disabled = false;
+        combineBtn.innerHTML = `<i class="fas fa-compress-alt"></i> Combine ${selectedSecondary.username} into ${selectedPrimary.username}`;
+    } else {
+        combineBtn.disabled = true;
+        combineBtn.innerHTML = '<i class="fas fa-compress-alt"></i> Combine Users';
+    }
+}
+
+function executeCombine() {
+    if (!selectedPrimary || !selectedSecondary) {
+        alert('Please select both primary and secondary users');
+        return;
+    }
+    
+    if (selectedPrimary.id === selectedSecondary.id) {
+        alert('Cannot combine a user with themselves');
+        return;
+    }
+    
+    // Show confirmation
+    const confirmMessage = `Are you sure you want to combine ${selectedSecondary.username} into ${selectedPrimary.username}?\n\nThis will:\n- Transfer all attendance data\n- Transfer all excuses and requests\n- Transfer created meetings and periods\n- Delete ${selectedSecondary.username} permanently\n\nThis action cannot be undone.`;
+    
+    if (confirm(confirmMessage)) {
+        // Execute the combine
+        fetch('/admin/users/combine', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                primary_user_id: selectedPrimary.id,
+                secondary_user_id: selectedSecondary.id
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert(`Success! ${data.message}\n\nDetails:\n${data.details.join('\n')}`);
+                location.reload();
+            } else {
+                alert('Error: ' + data.error);
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('An error occurred while combining users');
+        });
+    }
+}
+
+function editUser(userId, username, email, slackId, googleId) {
+    // Populate the form with current user data
+    document.getElementById('editUserId').value = userId;
+    document.getElementById('editUsername').value = username;
+    document.getElementById('editEmail').value = email;
+    document.getElementById('editSlackId').value = slackId;
+    document.getElementById('editGoogleId').value = googleId;
+    
+    // Clear any previous validation errors
+    clearValidationErrors();
+    
+    // Show the modal
+    new bootstrap.Modal(document.getElementById('editUserModal')).show();
+}
+
+function clearValidationErrors() {
+    // Remove invalid classes and clear error messages
+    const form = document.getElementById('editUserForm');
+    const inputs = form.querySelectorAll('.form-control');
+    inputs.forEach(input => {
+        input.classList.remove('is-invalid');
+    });
+    
+    const errorElements = form.querySelectorAll('.invalid-feedback');
+    errorElements.forEach(error => {
+        error.textContent = '';
+    });
+}
+
+function saveUserEdit() {
+    const form = document.getElementById('editUserForm');
+    const userId = document.getElementById('editUserId').value;
+    
+    // Clear previous validation errors
+    clearValidationErrors();
+    
+    // Get form data
+    const formData = {
+        username: document.getElementById('editUsername').value.trim(),
+        email: document.getElementById('editEmail').value.trim(),
+        slack_user_id: document.getElementById('editSlackId').value.trim(),
+        google_id: document.getElementById('editGoogleId').value.trim()
+    };
+    
+    // Basic client-side validation
+    if (!formData.username) {
+        showFieldError('editUsername', 'Username is required');
+        return;
+    }
+    
+    if (!formData.email) {
+        showFieldError('editEmail', 'Email is required');
+        return;
+    }
+    
+    // Email format validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(formData.email)) {
+        showFieldError('editEmail', 'Please enter a valid email address');
+        return;
+    }
+    
+    // Send the request
+    fetch(`/admin/users/${userId}/edit`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(formData)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // Close modal and reload page to show updated data
+            bootstrap.Modal.getInstance(document.getElementById('editUserModal')).hide();
+            location.reload();
+        } else {
+            // Handle validation errors
+            if (data.error.includes('Username already exists')) {
+                showFieldError('editUsername', 'Username already exists');
+            } else if (data.error.includes('Email already exists')) {
+                showFieldError('editEmail', 'Email already exists');
+            } else if (data.error.includes('Slack ID already exists')) {
+                showFieldError('editSlackId', 'Slack ID already exists');
+            } else if (data.error.includes('Google ID already exists')) {
+                showFieldError('editGoogleId', 'Google ID already exists');
+            } else {
+                alert('Error: ' + data.error);
+            }
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('An error occurred while updating the user profile');
+    });
+}
+
+function showFieldError(fieldId, message) {
+    const field = document.getElementById(fieldId);
+    const errorElement = document.getElementById(fieldId + 'Error');
+    
+    field.classList.add('is-invalid');
+    errorElement.textContent = message;
+}
+
 function toggleAdmin(userId, isAdmin) {
     const action = isAdmin ? 'remove admin privileges from' : 'promote to admin';
     const username = event.target.closest('tr').querySelector('strong').textContent;
