@@ -1,0 +1,324 @@
+{% extends "base.html" %}
+
+{% block title %}{{ meeting.description }} - Meeting Details{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="d-flex justify-content-between align-items-center">
+            <h2><i class="fas fa-calendar-check"></i> Meeting Details</h2>
+            <a href="{{ url_for('attendance_report', period_id=period.id) }}" class="btn btn-outline-secondary">
+                <i class="fas fa-arrow-left"></i> Back to Report
+            </a>
+        </div>
+    </div>
+</div>
+
+<!-- Meeting Info Card -->
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="fas fa-info-circle"></i> Meeting Information</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <p><strong>Meeting:</strong> {{ meeting.description }}</p>
+                        <p><strong>Date:</strong> {{ meeting.start_time.strftime('%A, %B %d, %Y') }}</p>
+                        <p><strong>Time:</strong> {{ meeting.start_time.strftime('%H:%M') }} - {{ meeting.end_time.strftime('%H:%M') }}</p>
+                        <p><strong>Duration:</strong> {{ attendance_data.total_meeting_hours }} hours</p>
+                    </div>
+                    <div class="col-md-6">
+                        <p><strong>Type:</strong> 
+                            {% if meeting.meeting_type == 'regular' %}
+                                <span class="badge bg-primary">Regular Meeting</span>
+                            {% else %}
+                                <span class="badge bg-success">Outreach Event</span>
+                            {% endif %}
+                        </p>
+                        <p><strong>Created By:</strong> {{ meeting.created_by_user.username }}</p>
+                        <p><strong>Created At:</strong> {{ meeting.created_at.strftime('%Y-%m-%d %H:%M') }}</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Attendance Summary -->
+<div class="row mt-4">
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header bg-primary text-white">
+                <h5><i class="fas fa-users"></i> Attendance Summary</h5>
+            </div>
+            <div class="card-body text-center">
+                <h3 class="text-primary">{{ attendance_data.attendance_count }}</h3>
+                <p class="text-muted">Members Attended</p>
+                <p><strong>{{ attendance_data.total_attended_hours }}h</strong> total hours</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header bg-warning text-white">
+                <h5><i class="fas fa-exclamation-triangle"></i> Excused Absences</h5>
+            </div>
+            <div class="card-body text-center">
+                <h3 class="text-warning">{{ attendance_data.excused_count }}</h3>
+                <p class="text-muted">Members Excused</p>
+                {% if meeting.meeting_type == 'outreach' %}
+                    <small class="text-muted">Note: Outreach events typically cannot be excused</small>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header bg-info text-white">
+                <h5><i class="fas fa-chart-pie"></i> Attendance Rate</h5>
+            </div>
+            <div class="card-body text-center">
+                {% set attendance_rate = (attendance_data.attendance_count / (attendance_data.attendance_count + attendance_data.excused_count) * 100) if (attendance_data.attendance_count + attendance_data.excused_count) > 0 else 0 %}
+                <h3 class="text-info">{{ "%.1f"|format(attendance_rate) }}%</h3>
+                <p class="text-muted">Attendance Rate</p>
+                <div class="progress mt-2">
+                    <div class="progress-bar bg-info" role="progressbar" 
+                         style="width: {{ attendance_rate }}%" 
+                         aria-valuenow="{{ attendance_rate }}" 
+                         aria-valuemin="0" aria-valuemax="100">
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Attendance Over Time Graph -->
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="fas fa-chart-line"></i> Attendance Over Time</h5>
+            </div>
+            <div class="card-body">
+                <canvas id="attendanceChart" width="400" height="100"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Detailed Attendance List -->
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="fas fa-list"></i> Member Attendance Details</h5>
+            </div>
+            <div class="card-body">
+                {% if attendance_data.attendance %}
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Member</th>
+                                <th>Hours Attended</th>
+                                <th>Attendance %</th>
+                                <th>Status</th>
+                                <th>Arrival Time</th>
+                                <th>Notes</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in attendance_data.attendance %}
+                            <tr>
+                                <td>
+                                    <strong>{{ item.user.username }}</strong>
+                                    {% if item.user.is_admin %}
+                                        <span class="badge bg-primary ms-1">Admin</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <strong>{{ item.hours_attended }}h</strong>
+                                    {% if item.is_partial %}
+                                        <span class="badge bg-warning ms-1">Partial</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <div class="progress" style="height: 20px;">
+                                        <div class="progress-bar 
+                                            {% if item.attendance_percentage >= 100 %}bg-success
+                                            {% elif item.attendance_percentage >= 75 %}bg-info
+                                            {% elif item.attendance_percentage >= 50 %}bg-warning
+                                            {% else %}bg-danger{% endif %}" 
+                                            role="progressbar" 
+                                            style="width: {{ item.attendance_percentage }}%" 
+                                            aria-valuenow="{{ item.attendance_percentage }}" 
+                                            aria-valuemin="0" aria-valuemax="100">
+                                            {{ item.attendance_percentage }}%
+                                        </div>
+                                    </div>
+                                </td>
+                                <td>
+                                    {% if item.attendance_percentage >= 100 %}
+                                        <span class="badge bg-success">Full</span>
+                                    {% elif item.attendance_percentage >= 75 %}
+                                        <span class="badge bg-info">Good</span>
+                                    {% elif item.attendance_percentage >= 50 %}
+                                        <span class="badge bg-warning">Partial</span>
+                                    {% else %}
+                                        <span class="badge bg-danger">Poor</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <small>{{ item.log.logged_at.strftime('%Y-%m-%d %H:%M') }}</small>
+                                </td>
+                                <td>
+                                    {% if item.notes %}
+                                        <small>{{ item.notes }}</small>
+                                    {% else %}
+                                        <span class="text-muted">-</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <p class="text-muted">No attendance recorded for this meeting.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Excused Absences -->
+{% if attendance_data.excuses %}
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="fas fa-exclamation-triangle"></i> Excused Absences</h5>
+            </div>
+            <div class="card-body">
+                {% if meeting.meeting_type == 'outreach' %}
+                <div class="alert alert-warning">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    <strong>Note:</strong> Outreach events typically cannot be excused as all outreach hours count toward requirements.
+                </div>
+                {% endif %}
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Member</th>
+                                <th>Reason</th>
+                                <th>Excused By</th>
+                                <th>Excused At</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in attendance_data.excuses %}
+                            <tr>
+                                <td>
+                                    <strong>{{ item.user.username }}</strong>
+                                    {% if item.user.is_admin %}
+                                        <span class="badge bg-primary ms-1">Admin</span>
+                                    {% endif %}
+                                </td>
+                                <td>{{ item.reason }}</td>
+                                <td>{{ item.excuse.created_by_user.username }}</td>
+                                <td>{{ item.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+// Create attendance over time chart
+const ctx = document.getElementById('attendanceChart').getContext('2d');
+
+// Prepare data for the chart
+const attendanceData = {{ attendance_data.attendance|tojson }};
+const meetingStartTime = new Date('{{ meeting.start_time.isoformat() }}');
+const meetingEndTime = new Date('{{ meeting.end_time.isoformat() }}');
+
+// Create time intervals (every 15 minutes)
+const timeIntervals = [];
+const currentTime = new Date(meetingStartTime);
+while (currentTime <= meetingEndTime) {
+    timeIntervals.push(new Date(currentTime));
+    currentTime.setMinutes(currentTime.getMinutes() + 15);
+}
+
+// Calculate attendance at each interval
+const attendanceCounts = timeIntervals.map(interval => {
+    return attendanceData.filter(item => {
+        const logTime = new Date(item.log.logged_at);
+        return logTime <= interval;
+    }).length;
+});
+
+// Create the chart
+const chart = new Chart(ctx, {
+    type: 'line',
+    data: {
+        labels: timeIntervals.map(time => time.toLocaleTimeString('en-US', { 
+            hour: '2-digit', 
+            minute: '2-digit',
+            hour12: false 
+        })),
+        datasets: [{
+            label: 'Members Present',
+            data: attendanceCounts,
+            borderColor: 'rgb(75, 192, 192)',
+            backgroundColor: 'rgba(75, 192, 192, 0.2)',
+            tension: 0.1,
+            fill: true
+        }]
+    },
+    options: {
+        responsive: true,
+        plugins: {
+            title: {
+                display: true,
+                text: 'Attendance Over Time - {{ meeting.description }}'
+            },
+            legend: {
+                display: true
+            }
+        },
+        scales: {
+            x: {
+                title: {
+                    display: true,
+                    text: 'Time'
+                }
+            },
+            y: {
+                title: {
+                    display: true,
+                    text: 'Number of Members Present'
+                },
+                beginAtZero: true,
+                ticks: {
+                    stepSize: 1
+                }
+            }
+        }
+    }
+});
+</script>
+{% endblock %}

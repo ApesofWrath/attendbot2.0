@@ -1,0 +1,409 @@
+{% extends "base.html" %}
+
+{% block title %}{{ user.username }} - Attendance Report{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="d-flex justify-content-between align-items-center">
+            <h2><i class="fas fa-user"></i> {{ user.username }} - Attendance Report</h2>
+            <a href="{{ url_for('admin_users') }}" class="btn btn-outline-secondary">
+                <i class="fas fa-arrow-left"></i> Back to Users
+            </a>
+        </div>
+    </div>
+</div>
+
+<!-- User Info Card -->
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="fas fa-user-circle"></i> User Information</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <p><strong>Username:</strong> {{ user.username }}</p>
+                        <p><strong>Email:</strong> {{ user.email }}</p>
+                        <p><strong>Admin Status:</strong> 
+                            {% if user.is_admin %}
+                                <span class="badge bg-success">Admin</span>
+                            {% else %}
+                                <span class="badge bg-secondary">User</span>
+                            {% endif %}
+                        </p>
+                    </div>
+                    <div class="col-md-6">
+                        <p><strong>Slack ID:</strong> 
+                            {% if user.slack_user_id %}
+                                <code>{{ user.slack_user_id }}</code>
+                            {% else %}
+                                <span class="text-muted">Not linked</span>
+                            {% endif %}
+                        </p>
+                        <p><strong>Google ID:</strong> 
+                            {% if user.google_id %}
+                                <code>{{ user.google_id[:20] }}...</code>
+                            {% else %}
+                                <span class="text-muted">Not linked</span>
+                            {% endif %}
+                        </p>
+                        <p><strong>Last Login:</strong> 
+                            {% if user.last_login %}
+                                {{ user.last_login.strftime('%Y-%m-%d %H:%M') }}
+                            {% else %}
+                                <span class="text-muted">Never</span>
+                            {% endif %}
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Summary Statistics -->
+<div class="row mt-4">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header bg-primary text-white">
+                <h5><i class="fas fa-calendar-check"></i> Regular Meetings Summary</h5>
+            </div>
+            <div class="card-body">
+                <div class="row text-center">
+                    <div class="col-6">
+                        <h3 class="text-primary">{{ attended_regular_hours }}h</h3>
+                        <p class="text-muted">Attended</p>
+                    </div>
+                    <div class="col-6">
+                        <h3 class="text-info">{{ effective_regular_hours }}h</h3>
+                        <p class="text-muted">Effective Total</p>
+                    </div>
+                </div>
+                <div class="progress mt-3">
+                    <div class="progress-bar bg-primary" role="progressbar" 
+                         style="width: {{ regular_percentage }}%" 
+                         aria-valuenow="{{ regular_percentage }}" 
+                         aria-valuemin="0" aria-valuemax="100">
+                        {{ regular_percentage }}%
+                    </div>
+                </div>
+                <div class="mt-2">
+                    <small class="text-muted">
+                        Total: {{ total_regular_hours }}h | 
+                        Excused: {{ excused_regular_hours }}h
+                    </small>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header bg-success text-white">
+                <h5><i class="fas fa-handshake"></i> Outreach Summary</h5>
+            </div>
+            <div class="card-body">
+                <div class="row text-center">
+                    <div class="col-6">
+                        <h3 class="text-success">{{ attended_outreach_hours }}h</h3>
+                        <p class="text-muted">Attended</p>
+                    </div>
+                    <div class="col-6">
+                        <h3 class="text-info">{{ total_outreach_hours }}h</h3>
+                        <p class="text-muted">Total Available</p>
+                    </div>
+                </div>
+                <div class="progress mt-3">
+                    <div class="progress-bar bg-success" role="progressbar" 
+                         style="width: {{ outreach_percentage }}%" 
+                         aria-valuenow="{{ outreach_percentage }}" 
+                         aria-valuemin="0" aria-valuemax="100">
+                        {{ outreach_percentage }}%
+                    </div>
+                </div>
+                <div class="mt-2">
+                    <small class="text-muted">
+                        All outreach hours count toward requirements
+                    </small>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Regular Meetings Attendance -->
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="fas fa-calendar-check"></i> Regular Meetings Attendance</h5>
+            </div>
+            <div class="card-body">
+                {% if regular_attendance %}
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Meeting</th>
+                                <th>Duration</th>
+                                <th>Hours Attended</th>
+                                <th>Attendance %</th>
+                                <th>Status</th>
+                                <th>Notes</th>
+                                <th>Logged At</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in regular_attendance %}
+                            <tr>
+                                <td>{{ item.meeting.start_time.strftime('%Y-%m-%d') }}</td>
+                                <td>
+                                    <strong>{{ item.meeting.description }}</strong><br>
+                                    <small class="text-muted">
+                                        {{ item.meeting.start_time.strftime('%H:%M') }} - {{ item.meeting.end_time.strftime('%H:%M') }}
+                                    </small>
+                                </td>
+                                <td>{{ item.total_hours }}h</td>
+                                <td>
+                                    <strong>{{ item.hours_attended }}h</strong>
+                                    {% if item.is_partial %}
+                                        <span class="badge bg-warning ms-1">Partial</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <div class="progress" style="height: 20px;">
+                                        <div class="progress-bar 
+                                            {% if item.attendance_percentage >= 100 %}bg-success
+                                            {% elif item.attendance_percentage >= 75 %}bg-info
+                                            {% elif item.attendance_percentage >= 50 %}bg-warning
+                                            {% else %}bg-danger{% endif %}" 
+                                            role="progressbar" 
+                                            style="width: {{ item.attendance_percentage }}%" 
+                                            aria-valuenow="{{ item.attendance_percentage }}" 
+                                            aria-valuemin="0" aria-valuemax="100">
+                                            {{ item.attendance_percentage }}%
+                                        </div>
+                                    </div>
+                                </td>
+                                <td>
+                                    {% if item.attendance_percentage >= 100 %}
+                                        <span class="badge bg-success">Full</span>
+                                    {% elif item.attendance_percentage >= 75 %}
+                                        <span class="badge bg-info">Good</span>
+                                    {% elif item.attendance_percentage >= 50 %}
+                                        <span class="badge bg-warning">Partial</span>
+                                    {% else %}
+                                        <span class="badge bg-danger">Poor</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if item.notes %}
+                                        <small>{{ item.notes }}</small>
+                                    {% else %}
+                                        <span class="text-muted">-</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <small>{{ item.log.logged_at.strftime('%Y-%m-%d %H:%M') }}</small>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <p class="text-muted">No regular meeting attendance recorded.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Regular Meetings Excuses -->
+{% if regular_excuses %}
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="fas fa-exclamation-triangle"></i> Regular Meetings Excuses</h5>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Meeting</th>
+                                <th>Duration</th>
+                                <th>Reason</th>
+                                <th>Created By</th>
+                                <th>Created At</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in regular_excuses %}
+                            <tr>
+                                <td>{{ item.meeting.start_time.strftime('%Y-%m-%d') }}</td>
+                                <td>
+                                    <strong>{{ item.meeting.description }}</strong><br>
+                                    <small class="text-muted">
+                                        {{ item.meeting.start_time.strftime('%H:%M') }} - {{ item.meeting.end_time.strftime('%H:%M') }}
+                                    </small>
+                                </td>
+                                <td>{{ item.total_hours }}h</td>
+                                <td>{{ item.excuse.reason }}</td>
+                                <td>{{ item.excuse.created_by_user.username }}</td>
+                                <td>{{ item.excuse.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Outreach Attendance -->
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="fas fa-handshake"></i> Outreach Events Attendance</h5>
+            </div>
+            <div class="card-body">
+                {% if outreach_attendance %}
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Event</th>
+                                <th>Duration</th>
+                                <th>Hours Attended</th>
+                                <th>Attendance %</th>
+                                <th>Status</th>
+                                <th>Notes</th>
+                                <th>Logged At</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in outreach_attendance %}
+                            <tr>
+                                <td>{{ item.meeting.start_time.strftime('%Y-%m-%d') }}</td>
+                                <td>
+                                    <strong>{{ item.meeting.description }}</strong><br>
+                                    <small class="text-muted">
+                                        {{ item.meeting.start_time.strftime('%H:%M') }} - {{ item.meeting.end_time.strftime('%H:%M') }}
+                                    </small>
+                                </td>
+                                <td>{{ item.total_hours }}h</td>
+                                <td>
+                                    <strong>{{ item.hours_attended }}h</strong>
+                                    {% if item.is_partial %}
+                                        <span class="badge bg-warning ms-1">Partial</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <div class="progress" style="height: 20px;">
+                                        <div class="progress-bar 
+                                            {% if item.attendance_percentage >= 100 %}bg-success
+                                            {% elif item.attendance_percentage >= 75 %}bg-info
+                                            {% elif item.attendance_percentage >= 50 %}bg-warning
+                                            {% else %}bg-danger{% endif %}" 
+                                            role="progressbar" 
+                                            style="width: {{ item.attendance_percentage }}%" 
+                                            aria-valuenow="{{ item.attendance_percentage }}" 
+                                            aria-valuemin="0" aria-valuemax="100">
+                                            {{ item.attendance_percentage }}%
+                                        </div>
+                                    </div>
+                                </td>
+                                <td>
+                                    {% if item.attendance_percentage >= 100 %}
+                                        <span class="badge bg-success">Full</span>
+                                    {% elif item.attendance_percentage >= 75 %}
+                                        <span class="badge bg-info">Good</span>
+                                    {% elif item.attendance_percentage >= 50 %}
+                                        <span class="badge bg-warning">Partial</span>
+                                    {% else %}
+                                        <span class="badge bg-danger">Poor</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if item.notes %}
+                                        <small>{{ item.notes }}</small>
+                                    {% else %}
+                                        <span class="text-muted">-</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <small>{{ item.log.logged_at.strftime('%Y-%m-%d %H:%M') }}</small>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <p class="text-muted">No outreach event attendance recorded.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Outreach Excuses (if any) -->
+{% if outreach_excuses %}
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="fas fa-exclamation-triangle"></i> Outreach Events Excuses</h5>
+            </div>
+            <div class="card-body">
+                <div class="alert alert-warning">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    <strong>Note:</strong> Outreach events typically cannot be excused as all outreach hours count toward requirements.
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Event</th>
+                                <th>Duration</th>
+                                <th>Reason</th>
+                                <th>Created By</th>
+                                <th>Created At</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in outreach_excuses %}
+                            <tr>
+                                <td>{{ item.meeting.start_time.strftime('%Y-%m-%d') }}</td>
+                                <td>
+                                    <strong>{{ item.meeting.description }}</strong><br>
+                                    <small class="text-muted">
+                                        {{ item.meeting.start_time.strftime('%H:%M') }} - {{ item.meeting.end_time.strftime('%H:%M') }}
+                                    </small>
+                                </td>
+                                <td>{{ item.total_hours }}h</td>
+                                <td>{{ item.excuse.reason }}</td>
+                                <td>{{ item.excuse.created_by_user.username }}</td>
+                                <td>{{ item.excuse.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{% endblock %}

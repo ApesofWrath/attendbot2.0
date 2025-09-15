@@ -523,6 +523,100 @@ def edit_user(user_id):
         db.session.rollback()
         return jsonify({'error': f'Error updating user profile: {str(e)}'}), 500
 
+@app.route('/admin/users/<int:user_id>/attendance')
+@login_required
+def user_attendance_report(user_id):
+    if not current_user.is_admin:
+        flash('Access denied. Admin privileges required.')
+        return redirect(url_for('admin_users'))
+    
+    user = User.query.get_or_404(user_id)
+    
+    # Get all attendance logs for this user, ordered by meeting date
+    attendance_logs = db.session.query(AttendanceLog, MeetingHour).join(
+        MeetingHour, AttendanceLog.meeting_hour_id == MeetingHour.id
+    ).filter(
+        AttendanceLog.user_id == user_id
+    ).order_by(MeetingHour.start_time.desc()).all()
+    
+    # Separate regular meetings and outreach
+    regular_attendance = []
+    outreach_attendance = []
+    
+    for log, meeting in attendance_logs:
+        # Calculate hours attended
+        if log.partial_hours is not None:
+            hours_attended = log.partial_hours
+        else:
+            hours_attended = (meeting.end_time - meeting.start_time).total_seconds() / 3600
+        
+        # Calculate total meeting hours
+        total_hours = (meeting.end_time - meeting.start_time).total_seconds() / 3600
+        
+        attendance_data = {
+            'log': log,
+            'meeting': meeting,
+            'hours_attended': round(hours_attended, 2),
+            'total_hours': round(total_hours, 2),
+            'attendance_percentage': round((hours_attended / total_hours * 100) if total_hours > 0 else 0, 1),
+            'is_partial': log.is_partial,
+            'notes': log.notes
+        }
+        
+        if meeting.meeting_type == 'regular':
+            regular_attendance.append(attendance_data)
+        else:
+            outreach_attendance.append(attendance_data)
+    
+    # Get user's excuses
+    excuses = db.session.query(Excuse, MeetingHour).join(
+        MeetingHour, Excuse.meeting_hour_id == MeetingHour.id
+    ).filter(
+        Excuse.user_id == user_id
+    ).order_by(MeetingHour.start_time.desc()).all()
+    
+    # Separate regular and outreach excuses
+    regular_excuses = []
+    outreach_excuses = []
+    
+    for excuse, meeting in excuses:
+        excuse_data = {
+            'excuse': excuse,
+            'meeting': meeting,
+            'total_hours': round((meeting.end_time - meeting.start_time).total_seconds() / 3600, 2)
+        }
+        
+        if meeting.meeting_type == 'regular':
+            regular_excuses.append(excuse_data)
+        else:
+            outreach_excuses.append(excuse_data)
+    
+    # Calculate summary statistics
+    total_regular_hours = sum(item['total_hours'] for item in regular_attendance)
+    attended_regular_hours = sum(item['hours_attended'] for item in regular_attendance)
+    excused_regular_hours = sum(item['total_hours'] for item in regular_excuses)
+    effective_regular_hours = total_regular_hours - excused_regular_hours
+    regular_percentage = (attended_regular_hours / effective_regular_hours * 100) if effective_regular_hours > 0 else 0
+    
+    total_outreach_hours = sum(item['total_hours'] for item in outreach_attendance)
+    attended_outreach_hours = sum(item['hours_attended'] for item in outreach_attendance)
+    outreach_percentage = (attended_outreach_hours / total_outreach_hours * 100) if total_outreach_hours > 0 else 0
+    
+    return render_template('user_attendance_report.html',
+                         user=user,
+                         regular_attendance=regular_attendance,
+                         outreach_attendance=outreach_attendance,
+                         regular_excuses=regular_excuses,
+                         outreach_excuses=outreach_excuses,
+                         total_regular_hours=round(total_regular_hours, 2),
+                         attended_regular_hours=round(attended_regular_hours, 2),
+                         excused_regular_hours=round(excused_regular_hours, 2),
+                         effective_regular_hours=round(effective_regular_hours, 2),
+                         regular_percentage=round(regular_percentage, 1),
+                         total_outreach_hours=round(total_outreach_hours, 2),
+                         attended_outreach_hours=round(attended_outreach_hours, 2),
+                         outreach_percentage=round(outreach_percentage, 1))
+
 @app.route('/admin/users/combine', methods=['POST'])
 @login_required
 def combine_users():
@@ -671,9 +765,31 @@ def attendance_report(period_id):
     period = ReportingPeriod.query.get_or_404(period_id)
     report_data = get_attendance_report_data(period_id)
     
+    # Get meetings data for the meeting tab
+    meetings_data = get_meetings_data_for_period(period_id)
+    
     return render_template('attendance_report.html', 
                          period=period,
-                         report_data=report_data)
+                         report_data=report_data,
+                         meetings_data=meetings_data)
+
+@app.route('/reports/<int:period_id>/meeting/<int:meeting_id>')
+@login_required
+def meeting_detail(period_id, meeting_id):
+    if not current_user.is_admin:
+        flash('Access denied. Admin privileges required.')
+        return redirect(url_for('dashboard'))
+    
+    period = ReportingPeriod.query.get_or_404(period_id)
+    meeting = MeetingHour.query.get_or_404(meeting_id)
+    
+    # Get detailed attendance data for this meeting
+    attendance_data = get_meeting_attendance_detail(meeting_id)
+    
+    return render_template('meeting_detail.html',
+                         period=period,
+                         meeting=meeting,
+                         attendance_data=attendance_data)
 
 @app.route('/api/attendance', methods=['POST'])
 @login_required
@@ -854,6 +970,103 @@ def get_attendance_report_data(period_id):
             report_data.append(user_data)
     
     return sorted(report_data, key=lambda x: x['attendance_percentage'], reverse=True)
+
+def get_meetings_data_for_period(period_id):
+    """Get meetings data for a period with attendance summaries"""
+    period = ReportingPeriod.query.get(period_id)
+    if not period:
+        return []
+    
+    # Get all meetings in the period
+    meetings = MeetingHour.query.filter(
+        MeetingHour.start_time >= period.start_date,
+        MeetingHour.start_time <= period.end_date
+    ).order_by(MeetingHour.start_time.desc()).all()
+    
+    meetings_data = []
+    for meeting in meetings:
+        # Get attendance logs for this meeting
+        attendance_logs = AttendanceLog.query.filter_by(meeting_hour_id=meeting.id).all()
+        
+        # Calculate attendance statistics
+        total_attended_hours = sum(
+            log.partial_hours if log.partial_hours is not None 
+            else (meeting.end_time - meeting.start_time).total_seconds() / 3600
+            for log in attendance_logs
+        )
+        
+        total_meeting_hours = (meeting.end_time - meeting.start_time).total_seconds() / 3600
+        attendance_count = len(attendance_logs)
+        
+        # Get excuses for this meeting
+        excuses = Excuse.query.filter_by(meeting_hour_id=meeting.id).all()
+        excused_count = len(excuses)
+        
+        meetings_data.append({
+            'meeting': meeting,
+            'attendance_count': attendance_count,
+            'excused_count': excused_count,
+            'total_attended_hours': round(total_attended_hours, 2),
+            'total_meeting_hours': round(total_meeting_hours, 2),
+            'attendance_percentage': round((total_attended_hours / total_meeting_hours * 100) if total_meeting_hours > 0 else 0, 1)
+        })
+    
+    return meetings_data
+
+def get_meeting_attendance_detail(meeting_id):
+    """Get detailed attendance data for a specific meeting"""
+    meeting = MeetingHour.query.get(meeting_id)
+    if not meeting:
+        return None
+    
+    # Get all attendance logs for this meeting
+    attendance_logs = db.session.query(AttendanceLog, User).join(
+        User, AttendanceLog.user_id == User.id
+    ).filter(
+        AttendanceLog.meeting_hour_id == meeting_id
+    ).order_by(AttendanceLog.logged_at).all()
+    
+    # Get excuses for this meeting
+    excuses = db.session.query(Excuse, User).join(
+        User, Excuse.user_id == User.id
+    ).filter(
+        Excuse.meeting_hour_id == meeting_id
+    ).all()
+    
+    # Process attendance data
+    attendance_data = []
+    for log, user in attendance_logs:
+        hours_attended = log.partial_hours if log.partial_hours is not None else (meeting.end_time - meeting.start_time).total_seconds() / 3600
+        total_hours = (meeting.end_time - meeting.start_time).total_seconds() / 3600
+        
+        attendance_data.append({
+            'log': log,
+            'user': user,
+            'hours_attended': round(hours_attended, 2),
+            'total_hours': round(total_hours, 2),
+            'attendance_percentage': round((hours_attended / total_hours * 100) if total_hours > 0 else 0, 1),
+            'is_partial': log.is_partial,
+            'notes': log.notes
+        })
+    
+    # Process excuse data
+    excuse_data = []
+    for excuse, user in excuses:
+        excuse_data.append({
+            'excuse': excuse,
+            'user': user,
+            'reason': excuse.reason,
+            'created_at': excuse.created_at
+        })
+    
+    return {
+        'attendance': attendance_data,
+        'excuses': excuse_data,
+        'total_attended_hours': sum(item['hours_attended'] for item in attendance_data),
+        'total_meeting_hours': round((meeting.end_time - meeting.start_time).total_seconds() / 3600, 2),
+        'attendance_count': len(attendance_data),
+        'excused_count': len(excuse_data)
+    }
 
 def guess_date_for_outreach_row(rows, current_row_idx, data_start_row):
     """
