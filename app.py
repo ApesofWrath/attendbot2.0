@@ -57,6 +57,7 @@ class MeetingHour(db.Model):
     # Relationships
     attendance_logs = db.relationship('AttendanceLog', backref='meeting_hour', lazy=True)
     excuses = db.relationship('Excuse', backref='meeting_hour', lazy=True)
+    created_by_user = db.relationship('User', foreign_keys=[created_by], backref='created_meetings')
 
 class AttendanceLog(db.Model):
     id = db.Column(db.Integer, primary_key=True)
