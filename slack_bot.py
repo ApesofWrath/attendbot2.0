@@ -4,7 +4,7 @@ import logging
 from datetime import datetime, timedelta
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
-from app import app, db, User, MeetingHour, AttendanceLog, ReportingPeriod, Excuse
+from app import app, db, User, MeetingHour, AttendanceLog, ReportingPeriod, Excuse, ExcuseRequest
 from google_auth import get_slack_user_info
 import pytz
 
@@ -179,11 +179,11 @@ class AttendanceSlackBot:
             return self._send_ephemeral_message(channel_id, user_id, f"❌ Error adding outreach event: {str(e)}")
     
     def _handle_log_attendance(self, user, channel_id, user_id, text):
-        """Handle logging attendance (supports both meeting_id and date-based logging)"""
+        """Handle logging attendance (supports both meeting_id and time-based logging)"""
         try:
             parts = text.strip().split()
             if not parts:
-                return self._send_ephemeral_message(channel_id, user_id, "❌ Format: `/log_attendance meeting_id hours [notes]` or `/log_attendance YYYY-MM-DD hours [notes]`")
+                return self._send_ephemeral_message(channel_id, user_id, "❌ Format: `/log_attendance meeting_id [notes]` or `/log_attendance YYYY-MM-DD HH:MM-HH:MM [notes]`")
             
             # Check if first part is a date (YYYY-MM-DD format) or meeting ID
             first_part = parts[0]
@@ -191,24 +191,23 @@ class AttendanceSlackBot:
             # Try to parse as date first
             try:
                 meeting_date = datetime.strptime(first_part, "%Y-%m-%d")
-                # This is date-based logging
-                return self._handle_date_based_logging(user, channel_id, parts, meeting_date)
+                # This is date-based logging with time range
+                return self._handle_time_based_logging(user, channel_id, user_id, parts, meeting_date)
             except ValueError:
                 # This is meeting ID based logging
-                return self._handle_meeting_id_logging(user, channel_id, parts)
+                return self._handle_meeting_id_logging(user, channel_id, user_id, parts)
                 
         except Exception as e:
             return self._send_ephemeral_message(channel_id, user_id, f"❌ Error logging attendance: {str(e)}")
     
-    def _handle_meeting_id_logging(self, user, channel_id, parts):
-        """Handle meeting ID based logging with required hours"""
+    def _handle_meeting_id_logging(self, user, channel_id, user_id, parts):
+        """Handle meeting ID based logging (full attendance)"""
         try:
-            if len(parts) < 2:
-                return self._send_ephemeral_message(channel_id, user_id, "❌ Format: `/log_attendance meeting_id hours [notes]`")
+            if len(parts) < 1:
+                return self._send_ephemeral_message(channel_id, user_id, "❌ Format: `/log_attendance meeting_id [notes]`")
             
             meeting_id = int(parts[0])
-            hours_str = parts[1]
-            notes = " ".join(parts[2:]) if len(parts) > 2 else ""
+            notes = " ".join(parts[1:]) if len(parts) > 1 else ""
             
             # Check if meeting exists
             meeting_hour = MeetingHour.query.get(meeting_id)
@@ -224,78 +223,77 @@ class AttendanceSlackBot:
             if existing_log:
                 return self._send_ephemeral_message(channel_id, user_id, "❌ Attendance already logged for this meeting.")
             
-            # Parse and validate hours
-            try:
-                hours_attended = float(hours_str)
-                if hours_attended <= 0:
-                    return self._send_ephemeral_message(channel_id, user_id, "❌ Hours must be greater than 0.")
-                
-                # Validate hours don't exceed meeting duration
-                meeting_duration = (meeting_hour.end_time - meeting_hour.start_time).total_seconds() / 3600
-                if hours_attended > meeting_duration:
-                    return self._send_ephemeral_message(channel_id, user_id, f"❌ Hours attended ({hours_attended}h) cannot exceed meeting duration ({meeting_duration:.1f}h).")
-                    
-            except ValueError:
-                return self._send_ephemeral_message(channel_id, user_id, "❌ Invalid hours format. Use a number (e.g., 1.5).")
+            # Calculate meeting duration
+            meeting_duration = (meeting_hour.end_time - meeting_hour.start_time).total_seconds() / 3600
             
-            # Determine if this is partial attendance
-            is_partial = hours_attended < meeting_duration
-            
-            # Create attendance log
+            # Create attendance log (full attendance)
             attendance_log = AttendanceLog(
                 user_id=user.id,
                 meeting_hour_id=meeting_id,
                 notes=notes,
-                is_partial=is_partial,
-                hours_attended=hours_attended
+                is_partial=False,
+                partial_hours=None,
+                attendance_start_time=meeting_hour.start_time,
+                attendance_end_time=meeting_hour.end_time
             )
             
             db.session.add(attendance_log)
             db.session.commit()
             
-            if is_partial:
-                return self._send_ephemeral_message(channel_id, user_id, f"✅ Partial attendance logged: {hours_attended}h of {meeting_duration:.1f}h for {meeting_hour.description}")
-            else:
-                return self._send_ephemeral_message(channel_id, user_id, f"✅ Full attendance logged: {hours_attended}h for {meeting_hour.description}")
+            return self._send_ephemeral_message(channel_id, user_id, f"✅ Full attendance logged: {meeting_duration:.1f}h for {meeting_hour.description}")
             
         except ValueError:
             return self._send_ephemeral_message(channel_id, user_id, "❌ Invalid meeting ID. Must be a number.")
     
-    def _handle_date_based_logging(self, user, channel_id, parts, meeting_date):
-        """Handle date-based logging with required hours"""
+    def _handle_time_based_logging(self, user, channel_id, user_id, parts, meeting_date):
+        """Handle time-based logging with start and end times"""
         try:
-            if len(parts) < 2:
-                return self._send_ephemeral_message(channel_id, user_id, "❌ Format: `/log_attendance YYYY-MM-DD hours [notes]`")
+            if len(parts) < 3:
+                return self._send_ephemeral_message(channel_id, user_id, "❌ Format: `/log_attendance YYYY-MM-DD HH:MM-HH:MM [notes]`")
             
-            # Parse hours (now required)
-            hours_str = parts[1]
+            # Parse time range
+            time_str = parts[1]
             notes = " ".join(parts[2:]) if len(parts) > 2 else ""
             
-            # Parse and validate hours
+            # Parse time range
             try:
-                hours_attended = float(hours_str)
-                if hours_attended <= 0:
-                    return self._send_ephemeral_message(channel_id, user_id, "❌ Hours must be greater than 0.")
+                start_time_str, end_time_str = time_str.split("-")
+                start_time = datetime.strptime(f"{meeting_date.strftime('%Y-%m-%d')} {start_time_str}", "%Y-%m-%d %H:%M")
+                end_time = datetime.strptime(f"{meeting_date.strftime('%Y-%m-%d')} {end_time_str}", "%Y-%m-%d %H:%M")
+                
+                if end_time <= start_time:
+                    return self._send_ephemeral_message(channel_id, user_id, "❌ End time must be after start time.")
+                    
             except ValueError:
-                return self._send_ephemeral_message(channel_id, user_id, "❌ Invalid hours format. Use a number (e.g., 1.5).")
+                return self._send_ephemeral_message(channel_id, user_id, "❌ Invalid time format. Use HH:MM-HH:MM (e.g., 14:00-15:30).")
             
-            # Find meetings on the specified date
+            # Find meetings that overlap with the specified time range
             meetings = MeetingHour.query.filter(
                 db.func.date(MeetingHour.start_time) == meeting_date.date(),
-                MeetingHour.meeting_type == 'regular'
+                MeetingHour.meeting_type == 'regular',
+                MeetingHour.start_time <= end_time,
+                MeetingHour.end_time >= start_time
             ).all()
             
             if not meetings:
-                return self._send_ephemeral_message(channel_id, user_id, f"❌ No regular meetings found on {meeting_date.strftime('%Y-%m-%d')}. Please check the date or contact an admin.")
+                return self._send_ephemeral_message(channel_id, user_id, f"❌ No regular meetings found on {meeting_date.strftime('%Y-%m-%d')} that overlap with {start_time_str}-{end_time_str}. Please check the time or contact an admin.")
             
-            # If multiple meetings on the same date, find the best match
+            # If multiple meetings overlap, find the best match (most overlap)
             best_meeting = None
-            if len(meetings) == 1:
-                best_meeting = meetings[0]
-            else:
-                # For multiple meetings, show options to user
-                meeting_list = "\n".join([f"{i+1}. {m.description} ({m.start_time.strftime('%H:%M')}-{m.end_time.strftime('%H:%M')})" for i, m in enumerate(meetings)])
-                return self._send_ephemeral_message(channel_id, user_id, f"❌ Multiple meetings found on {meeting_date.strftime('%Y-%m-%d')}:\n{meeting_list}\n\nPlease use `/log_attendance meeting_id` for specific meetings or contact an admin to clarify.")
+            max_overlap = 0
+            
+            for meeting in meetings:
+                # Calculate overlap duration
+                overlap_start = max(meeting.start_time, start_time)
+                overlap_end = min(meeting.end_time, end_time)
+                overlap_duration = (overlap_end - overlap_start).total_seconds() / 3600
+                
+                if overlap_duration > max_overlap:
+                    max_overlap = overlap_duration
+                    best_meeting = meeting
+            
+            if not best_meeting:
+                return self._send_ephemeral_message(channel_id, user_id, f"❌ No suitable meeting found for the time range {start_time_str}-{end_time_str}.")
             
             # Check if already logged
             existing_log = AttendanceLog.query.filter_by(
@@ -306,10 +304,11 @@ class AttendanceSlackBot:
             if existing_log:
                 return self._send_ephemeral_message(channel_id, user_id, f"❌ Attendance already logged for {best_meeting.description} on {meeting_date.strftime('%Y-%m-%d')}.")
             
-            # Validate hours don't exceed meeting duration
+            # Calculate actual hours attended (overlap with meeting)
+            actual_start = max(best_meeting.start_time, start_time)
+            actual_end = min(best_meeting.end_time, end_time)
+            hours_attended = (actual_end - actual_start).total_seconds() / 3600
             meeting_duration = (best_meeting.end_time - best_meeting.start_time).total_seconds() / 3600
-            if hours_attended > meeting_duration:
-                return self._send_ephemeral_message(channel_id, user_id, f"❌ Hours attended ({hours_attended}h) cannot exceed meeting duration ({meeting_duration:.1f}h).")
             
             # Determine if this is partial attendance
             is_partial = hours_attended < meeting_duration
@@ -320,30 +319,52 @@ class AttendanceSlackBot:
                 meeting_hour_id=best_meeting.id,
                 notes=notes,
                 is_partial=is_partial,
-                hours_attended=hours_attended
+                partial_hours=hours_attended if is_partial else None,
+                attendance_start_time=actual_start,
+                attendance_end_time=actual_end
             )
             
             db.session.add(attendance_log)
             db.session.commit()
             
             if is_partial:
-                return self._send_ephemeral_message(channel_id, user_id, f"✅ Partial attendance logged: {hours_attended}h of {meeting_duration:.1f}h for {best_meeting.description} on {meeting_date.strftime('%Y-%m-%d')}")
+                return self._send_ephemeral_message(channel_id, user_id, f"✅ Partial attendance logged: {hours_attended:.1f}h of {meeting_duration:.1f}h for {best_meeting.description} on {meeting_date.strftime('%Y-%m-%d')}")
             else:
-                return self._send_ephemeral_message(channel_id, user_id, f"✅ Full attendance logged: {hours_attended}h for {best_meeting.description} on {meeting_date.strftime('%Y-%m-%d')}")
+                return self._send_ephemeral_message(channel_id, user_id, f"✅ Full attendance logged: {hours_attended:.1f}h for {best_meeting.description} on {meeting_date.strftime('%Y-%m-%d')}")
             
         except Exception as e:
             return self._send_ephemeral_message(channel_id, user_id, f"❌ Error logging attendance: {str(e)}")
     
     def _handle_log_outreach(self, user, channel_id, user_id, text):
-        """Handle logging outreach attendance"""
+        """Handle logging outreach attendance (supports both outreach_id and time-based logging)"""
         try:
-            # Parse text: "outreach_id notes"
-            parts = text.strip().split(None, 1)
+            parts = text.strip().split()
+            if not parts:
+                return self._send_ephemeral_message(channel_id, user_id, "❌ Format: `/log_outreach outreach_id [notes]` or `/log_outreach YYYY-MM-DD HH:MM-HH:MM [notes]`")
+            
+            # Check if first part is a date (YYYY-MM-DD format) or outreach ID
+            first_part = parts[0]
+            
+            # Try to parse as date first
+            try:
+                outreach_date = datetime.strptime(first_part, "%Y-%m-%d")
+                # This is date-based logging with time range
+                return self._handle_outreach_time_based_logging(user, channel_id, user_id, parts, outreach_date)
+            except ValueError:
+                # This is outreach ID based logging
+                return self._handle_outreach_id_logging(user, channel_id, user_id, parts)
+                
+        except Exception as e:
+            return self._send_ephemeral_message(channel_id, user_id, f"❌ Error logging outreach attendance: {str(e)}")
+    
+    def _handle_outreach_id_logging(self, user, channel_id, user_id, parts):
+        """Handle outreach ID based logging (full attendance)"""
+        try:
             if len(parts) < 1:
                 return self._send_ephemeral_message(channel_id, user_id, "❌ Format: `/log_outreach outreach_id [notes]`")
             
             outreach_id = int(parts[0])
-            notes = parts[1] if len(parts) > 1 else ""
+            notes = " ".join(parts[1:]) if len(parts) > 1 else ""
             
             # Check if outreach event exists and is outreach type
             outreach_event = MeetingHour.query.get(outreach_id)
@@ -362,23 +383,115 @@ class AttendanceSlackBot:
             if existing_log:
                 return self._send_ephemeral_message(channel_id, user_id, "❌ Outreach attendance already logged for this event.")
             
-            # Create attendance log
+            # Calculate duration
+            duration_hours = (outreach_event.end_time - outreach_event.start_time).total_seconds() / 3600
+            
+            # Create attendance log (full attendance)
             attendance_log = AttendanceLog(
                 user_id=user.id,
                 meeting_hour_id=outreach_id,
-                notes=notes
+                notes=notes,
+                is_partial=False,
+                partial_hours=None,
+                attendance_start_time=outreach_event.start_time,
+                attendance_end_time=outreach_event.end_time
             )
             
             db.session.add(attendance_log)
             db.session.commit()
             
-            # Calculate duration
-            duration_hours = (outreach_event.end_time - outreach_event.start_time).total_seconds() / 3600
-            
             return self._send_ephemeral_message(channel_id, user_id, f"✅ Outreach attendance logged for: {outreach_event.description} ({duration_hours:.1f} hours)")
             
         except ValueError:
             return self._send_ephemeral_message(channel_id, user_id, "❌ Invalid outreach event ID. Must be a number.")
+    
+    def _handle_outreach_time_based_logging(self, user, channel_id, user_id, parts, outreach_date):
+        """Handle time-based outreach logging with start and end times"""
+        try:
+            if len(parts) < 3:
+                return self._send_ephemeral_message(channel_id, user_id, "❌ Format: `/log_outreach YYYY-MM-DD HH:MM-HH:MM [notes]`")
+            
+            # Parse time range
+            time_str = parts[1]
+            notes = " ".join(parts[2:]) if len(parts) > 2 else ""
+            
+            # Parse time range
+            try:
+                start_time_str, end_time_str = time_str.split("-")
+                start_time = datetime.strptime(f"{outreach_date.strftime('%Y-%m-%d')} {start_time_str}", "%Y-%m-%d %H:%M")
+                end_time = datetime.strptime(f"{outreach_date.strftime('%Y-%m-%d')} {end_time_str}", "%Y-%m-%d %H:%M")
+                
+                if end_time <= start_time:
+                    return self._send_ephemeral_message(channel_id, user_id, "❌ End time must be after start time.")
+                    
+            except ValueError:
+                return self._send_ephemeral_message(channel_id, user_id, "❌ Invalid time format. Use HH:MM-HH:MM (e.g., 14:00-15:30).")
+            
+            # Find outreach events that overlap with the specified time range
+            outreach_events = MeetingHour.query.filter(
+                db.func.date(MeetingHour.start_time) == outreach_date.date(),
+                MeetingHour.meeting_type == 'outreach',
+                MeetingHour.start_time <= end_time,
+                MeetingHour.end_time >= start_time
+            ).all()
+            
+            if not outreach_events:
+                return self._send_ephemeral_message(channel_id, user_id, f"❌ No outreach events found on {outreach_date.strftime('%Y-%m-%d')} that overlap with {start_time_str}-{end_time_str}. Please check the time or contact an admin.")
+            
+            # If multiple events overlap, find the best match (most overlap)
+            best_event = None
+            max_overlap = 0
+            
+            for event in outreach_events:
+                # Calculate overlap duration
+                overlap_start = max(event.start_time, start_time)
+                overlap_end = min(event.end_time, end_time)
+                overlap_duration = (overlap_end - overlap_start).total_seconds() / 3600
+                
+                if overlap_duration > max_overlap:
+                    max_overlap = overlap_duration
+                    best_event = event
+            
+            if not best_event:
+                return self._send_ephemeral_message(channel_id, user_id, f"❌ No suitable outreach event found for the time range {start_time_str}-{end_time_str}.")
+            
+            # Check if already logged
+            existing_log = AttendanceLog.query.filter_by(
+                user_id=user.id,
+                meeting_hour_id=best_event.id
+            ).first()
+            
+            if existing_log:
+                return self._send_ephemeral_message(channel_id, user_id, f"❌ Outreach attendance already logged for {best_event.description} on {outreach_date.strftime('%Y-%m-%d')}.")
+            
+            # Calculate actual hours attended (overlap with event)
+            actual_start = max(best_event.start_time, start_time)
+            actual_end = min(best_event.end_time, end_time)
+            hours_attended = (actual_end - actual_start).total_seconds() / 3600
+            event_duration = (best_event.end_time - best_event.start_time).total_seconds() / 3600
+            
+            # Determine if this is partial attendance
+            is_partial = hours_attended < event_duration
+            
+            # Create attendance log
+            attendance_log = AttendanceLog(
+                user_id=user.id,
+                meeting_hour_id=best_event.id,
+                notes=notes,
+                is_partial=is_partial,
+                partial_hours=hours_attended if is_partial else None,
+                attendance_start_time=actual_start,
+                attendance_end_time=actual_end
+            )
+            
+            db.session.add(attendance_log)
+            db.session.commit()
+            
+            if is_partial:
+                return self._send_ephemeral_message(channel_id, user_id, f"✅ Partial outreach attendance logged: {hours_attended:.1f}h of {event_duration:.1f}h for {best_event.description} on {outreach_date.strftime('%Y-%m-%d')}")
+            else:
+                return self._send_ephemeral_message(channel_id, user_id, f"✅ Full outreach attendance logged: {hours_attended:.1f}h for {best_event.description} on {outreach_date.strftime('%Y-%m-%d')}")
+            
         except Exception as e:
             return self._send_ephemeral_message(channel_id, user_id, f"❌ Error logging outreach attendance: {str(e)}")
     
@@ -530,15 +643,15 @@ class AttendanceSlackBot:
             try:
                 meeting_date = datetime.strptime(first_part, "%Y-%m-%d")
                 # Date-based request
-                return self._handle_date_based_excuse_request(user, channel_id, meeting_date, reason)
+                return self._handle_date_based_excuse_request(user, channel_id, user_id, meeting_date, reason)
             except ValueError:
                 # Meeting ID based request
-                return self._handle_meeting_id_excuse_request(user, channel_id, first_part, reason)
+                return self._handle_meeting_id_excuse_request(user, channel_id, user_id, first_part, reason)
                 
         except Exception as e:
             return self._send_ephemeral_message(channel_id, user_id, f"❌ Error requesting excuse: {str(e)}")
     
-    def _handle_meeting_id_excuse_request(self, user, channel_id, meeting_id_str, reason):
+    def _handle_meeting_id_excuse_request(self, user, channel_id, user_id, meeting_id_str, reason):
         """Handle excuse request by meeting ID"""
         try:
             meeting_id = int(meeting_id_str)
@@ -586,7 +699,7 @@ class AttendanceSlackBot:
         except ValueError:
             return self._send_ephemeral_message(channel_id, user_id, "❌ Invalid meeting ID. Must be a number.")
     
-    def _handle_date_based_excuse_request(self, user, channel_id, meeting_date, reason):
+    def _handle_date_based_excuse_request(self, user, channel_id, user_id, meeting_date, reason):
         """Handle excuse request by date"""
         try:
             # Find meetings on the specified date
@@ -654,9 +767,10 @@ class AttendanceSlackBot:
             message += "`/excuse user_id meeting_id reason` - Excuse user from meeting\n\n"
         
         message += "*User Commands:*\n"
-        message += "`/log_attendance meeting_id hours [notes]` - Log regular meeting attendance with hours\n"
-        message += "`/log_attendance YYYY-MM-DD hours [notes]` - Log attendance by date with hours\n"
-        message += "`/log_outreach outreach_id [notes]` - Log outreach attendance\n"
+        message += "`/log_attendance meeting_id [notes]` - Log full regular meeting attendance\n"
+        message += "`/log_attendance YYYY-MM-DD HH:MM-HH:MM [notes]` - Log attendance by time range\n"
+        message += "`/log_outreach outreach_id [notes]` - Log full outreach attendance\n"
+        message += "`/log_outreach YYYY-MM-DD HH:MM-HH:MM [notes]` - Log outreach by time range\n"
         message += "`/request_excuse meeting_id reason` - Request excuse for a meeting\n"
         message += "`/request_excuse YYYY-MM-DD reason` - Request excuse by date\n"
         message += "`/my_attendance` - View your attendance and outreach hours\n"

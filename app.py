@@ -68,6 +68,9 @@ class AttendanceLog(db.Model):
     # Attendance fields - now always required
     partial_hours = db.Column(db.Float, nullable=True)  # Hours actually attended (can be null for full attendance)
     is_partial = db.Column(db.Boolean, default=False)  # Whether this is partial attendance
+    # Attendance time tracking
+    attendance_start_time = db.Column(db.DateTime, nullable=True)  # When the person actually started attending
+    attendance_end_time = db.Column(db.DateTime, nullable=True)  # When the person actually stopped attending
 
 class ReportingPeriod(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -1137,12 +1140,24 @@ def get_meeting_attendance_detail(meeting_id):
         hours_attended = log.partial_hours if log.partial_hours is not None else (meeting.end_time - meeting.start_time).total_seconds() / 3600
         total_hours = (meeting.end_time - meeting.start_time).total_seconds() / 3600
         
+        # Calculate attendance times for legacy records
+        if log.attendance_start_time and log.attendance_end_time:
+            # Use actual attendance times
+            attendance_start_time = log.attendance_start_time
+            attendance_end_time = log.attendance_end_time
+        else:
+            # For legacy records, assume attendance from meeting start for the logged duration
+            attendance_start_time = meeting.start_time
+            attendance_end_time = meeting.start_time + timedelta(hours=hours_attended)
+        
         attendance_data.append({
             'log': {
                 'id': log.id,
                 'logged_at': log.logged_at.isoformat(),
                 'is_partial': log.is_partial,
-                'notes': log.notes
+                'notes': log.notes,
+                'attendance_start_time': attendance_start_time.isoformat(),
+                'attendance_end_time': attendance_end_time.isoformat()
             },
             'user': {
                 'id': user.id,
@@ -1153,7 +1168,9 @@ def get_meeting_attendance_detail(meeting_id):
             'total_hours': round(total_hours, 2),
             'attendance_percentage': round((hours_attended / total_hours * 100) if total_hours > 0 else 0, 1),
             'is_partial': log.is_partial,
-            'notes': log.notes
+            'notes': log.notes,
+            'attendance_start_time': attendance_start_time,
+            'attendance_end_time': attendance_end_time
         })
     
     # Process excuse data

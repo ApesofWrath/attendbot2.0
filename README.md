@@ -6,11 +6,14 @@ A Python-based web application for tracking team attendance with Slack bot integ
 
 - **Slack Integration**: Primary interface through Slack bot commands
 - **Admin Management**: Create meeting hours, reporting periods, and excuse team members
-- **User Attendance Logging**: Easy attendance logging through Slack
+- **Time-Based Attendance Logging**: Log precise start and end times for accurate tracking
+- **Smart Time Matching**: Automatically finds meetings/events based on date and time overlap
 - **Outreach Tracking**: Separate tracking for outreach events with hour-based requirements
-- **Detailed Reporting**: Web interface with comprehensive attendance reports
+- **Detailed Reporting**: Web interface with comprehensive attendance reports and charts
+- **Attendance Visualization**: Charts showing member presence over time during meetings
 - **Smart Metrics**: Automatic calculation of attendance percentages and outreach hours
 - **Dual Requirements**: Track both regular meeting attendance (60%/75%) and outreach hours (12h/18h)
+- **Legacy Support**: Intelligent handling of existing records without specific times
 
 ## Quick Start
 
@@ -114,13 +117,82 @@ Enable event subscriptions and add your endpoint:
 
 ## Usage
 
-### Admin Commands (Slack)
+### Running the Application
+
+#### Development Mode
+
+```bash
+# Method 1: Using run.py (recommended for development)
+python run.py
+
+# Method 2: Using start.py (includes Slack integration)
+python start.py
+
+# Method 3: Direct Flask app
+python app.py
+```
+
+The application will be available at `http://localhost:5001`
+
+#### Production Mode
+
+```bash
+# Using Gunicorn (recommended for production)
+gunicorn -w 4 -b 0.0.0.0:8000 start:app
+
+# Using Docker
+docker-compose up -d
+
+# Using Docker directly
+docker build -t attendance-tracker .
+docker run -p 8000:8000 --env-file .env attendance-tracker
+```
+
+#### Environment Setup
+
+1. **Create your environment file:**
+```bash
+cp env.example .env
+```
+
+2. **Configure required variables in `.env`:**
+```bash
+# Flask Configuration
+SECRET_KEY=your-secret-key-here
+DATABASE_URL=sqlite:///attendance.db  # or postgresql://user:pass@host/db
+
+# Slack Integration
+SLACK_BOT_TOKEN=xoxb-your-bot-token
+SLACK_SIGNING_SECRET=your-signing-secret
+
+# Google OAuth (for web login)
+GOOGLE_CLIENT_ID=your-google-client-id
+GOOGLE_CLIENT_SECRET=your-google-client-secret
+GOOGLE_REDIRECT_URI=http://localhost:5001/auth/google/callback
+
+# Optional: Production settings
+FLASK_ENV=production
+BEHIND_PROXY=true  # Set to true if behind nginx/proxy
+```
+
+3. **Initialize the database:**
+```bash
+# For SQLite (development)
+python -c "from app import app, db; app.app_context().push(); db.create_all()"
+
+# For PostgreSQL (production)
+# Database will be created automatically on first run
+```
+
+### Slack Bot Commands
+
+#### Admin Commands
 
 ```bash
 # Add a regular meeting
 /add_meeting 2024-01-15 14:00-16:00 Team Meeting
 
-# Add an outreach event
+# Add an outreach event  
 /add_outreach 2024-01-16 10:00-12:00 School Visit
 
 # Create a reporting period
@@ -130,37 +202,156 @@ Enable event subscriptions and add your endpoint:
 /excuse 123 456 Family emergency
 ```
 
-### User Commands (Slack)
+#### User Commands
+
+##### Regular Meeting Attendance
 
 ```bash
-# Log regular meeting attendance (by meeting ID) - hours required
-/log_attendance 123 2.0 Attended the full meeting
+# Log full attendance by meeting ID
+/log_attendance 123 Attended the full meeting
 
-# Log attendance by date with hours
-/log_attendance 2024-01-15 2.0 Attended the full meeting
+# Log attendance by specific time range
+/log_attendance 2024-01-15 14:00-16:00 Attended the full meeting
 
-# Log partial attendance by date
-/log_attendance 2024-01-15 1.5 Arrived late due to traffic
+# Log partial attendance by time range
+/log_attendance 2024-01-15 14:30-15:30 Arrived late due to traffic
 
-# Log outreach attendance
-/log_outreach 456 Helped with school presentation
+# Log attendance with notes
+/log_attendance 2024-01-15 14:00-15:30 Left early for another meeting
+```
 
+##### Outreach Event Attendance
+
+```bash
+# Log full outreach attendance by event ID
+/log_outreach 456 Participated in school visit
+
+# Log outreach by specific time range
+/log_outreach 2024-01-16 10:00-12:00 Full participation in school visit
+
+# Log partial outreach by time range
+/log_outreach 2024-01-16 10:30-11:30 Arrived late to school visit
+
+# Log outreach with notes
+/log_outreach 2024-01-16 10:00-11:30 Left early for another commitment
+```
+
+##### Other Commands
+
+```bash
 # Request excuse for a meeting
-/request_excuse 123 Had a family emergency
-/request_excuse 2024-01-15 Doctor appointment
+/request_excuse 123 Family emergency
 
-# View your attendance and outreach
+# Request excuse by date
+/request_excuse 2024-01-15 Medical appointment
+
+# View your attendance summary
 /my_attendance
 
-# Get help
+# Get help with commands
 /help
 ```
 
+#### Time-Based Logging Features
+
+The new time-based logging system provides several advantages:
+
+- **Precise Tracking**: Log exact start and end times of your attendance
+- **Automatic Calculation**: System calculates actual hours attended based on overlap with meeting times
+- **Smart Matching**: Automatically finds the correct meeting/outreach event based on date and time
+- **Partial Attendance**: Easily log partial attendance with specific time ranges
+- **Legacy Support**: Existing records without specific times are handled intelligently
+
+**Time Format**: Use `HH:MM-HH:MM` format (24-hour time)
+- Examples: `14:00-16:00`, `09:30-11:00`, `13:45-14:15`
+
+**Date Format**: Use `YYYY-MM-DD` format
+- Examples: `2024-01-15`, `2024-03-22`, `2024-12-31`
+
 ### Web Interface
 
-- **Dashboard**: View personal attendance metrics
+Access the web interface at `http://localhost:5001` (development) or your production URL.
+
+#### Features:
+- **Dashboard**: View personal attendance metrics and current status
 - **Admin Panel**: Manage meetings, periods, and excuses
 - **Reports**: Detailed attendance reports for each period
+- **Meeting Details**: Individual meeting views with attendance charts
+- **Attendance Visualization**: Charts showing member presence over time
+- **Peak Attendance Analytics**: Identify when most members were present
+- **User Management**: Admin can manage users and permissions
+- **Google OAuth**: Secure login using Google accounts
+
+#### Navigation:
+- **Home**: Personal dashboard with attendance overview
+- **Admin Dashboard**: Full administrative controls (admin only)
+- **Reports**: Generate and view attendance reports
+- **Login/Logout**: Google OAuth authentication
+
+### Database Management
+
+#### Migrations (if using Flask-Migrate)
+```bash
+# Initialize migrations
+flask db init
+
+# Create migration
+flask db migrate -m "Description of changes"
+
+# Apply migration
+flask db upgrade
+```
+
+#### Manual Database Operations
+```bash
+# Reset database (development only)
+python -c "from app import app, db; app.app_context().push(); db.drop_all(); db.create_all()"
+
+# Create admin user
+python -c "from app import app, db, User; app.app_context().push(); admin = User(username='admin', email='admin@example.com', is_admin=True); db.session.add(admin); db.session.commit()"
+```
+
+### Troubleshooting
+
+#### Common Issues
+
+1. **"User not found" in Slack commands:**
+   - Ensure the user has logged in via the web interface first
+   - Check that Slack user ID is properly linked in the database
+
+2. **Database connection errors:**
+   - Verify DATABASE_URL is correct
+   - For PostgreSQL, ensure the database exists and credentials are correct
+   - For SQLite, check file permissions
+
+3. **Slack bot not responding:**
+   - Verify SLACK_BOT_TOKEN and SLACK_SIGNING_SECRET are correct
+   - Check that the Slack app has proper permissions
+   - Ensure the webhook URL is accessible from Slack
+
+4. **Google OAuth not working:**
+   - Verify GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET
+   - Check that redirect URI matches exactly
+   - Ensure Google+ API is enabled in Google Cloud Console
+
+5. **Port already in use:**
+   - Change the port in run.py or start.py
+   - Kill existing processes: `lsof -ti:5001 | xargs kill -9`
+
+#### Logs and Debugging
+
+```bash
+# Enable debug mode
+export FLASK_DEBUG=1
+python run.py
+
+# View application logs
+tail -f logs/app.log  # if logging to file
+
+# Check database
+sqlite3 instance/attendance.db  # for SQLite
+psql $DATABASE_URL  # for PostgreSQL
+```
 
 ## Database Schema
 

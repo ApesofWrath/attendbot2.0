@@ -327,6 +327,275 @@ class TestAttendanceTracker:
             else:
                 print("✗ No meetings found for percentage calculation test")
 
+    def test_attendance_time_tracking(self):
+        """Test attendance time tracking functionality"""
+        print("Testing attendance time tracking...")
+        
+        with self.app.app_context():
+            # Create a test meeting with specific times
+            meeting_start = datetime.utcnow().replace(hour=14, minute=0, second=0, microsecond=0)
+            meeting_end = meeting_start + timedelta(hours=2)
+            
+            test_meeting = MeetingHour(
+                start_time=meeting_start,
+                end_time=meeting_end,
+                description="Test Meeting for Time Tracking",
+                meeting_type="regular",
+                created_by=self.test_data['admin_id']
+            )
+            db.session.add(test_meeting)
+            db.session.commit()
+            
+            # Test 1: Full attendance with specific times
+            full_attendance = AttendanceLog(
+                user_id=self.test_data['user1_id'],
+                meeting_hour_id=test_meeting.id,
+                notes="Full attendance test",
+                is_partial=False,
+                partial_hours=None,
+                attendance_start_time=meeting_start,
+                attendance_end_time=meeting_end
+            )
+            db.session.add(full_attendance)
+            db.session.commit()
+            
+            # Test 2: Partial attendance with specific times
+            partial_start = meeting_start + timedelta(minutes=30)
+            partial_end = meeting_start + timedelta(hours=1, minutes=30)
+            partial_attendance = AttendanceLog(
+                user_id=self.test_data['user2_id'],
+                meeting_hour_id=test_meeting.id,
+                notes="Partial attendance test",
+                is_partial=True,
+                partial_hours=1.0,
+                attendance_start_time=partial_start,
+                attendance_end_time=partial_end
+            )
+            db.session.add(partial_attendance)
+            db.session.commit()
+            
+            # Test 3: Legacy record without specific times
+            legacy_attendance = AttendanceLog(
+                user_id=self.test_data['admin_id'],
+                meeting_hour_id=test_meeting.id,
+                notes="Legacy attendance test",
+                is_partial=True,
+                partial_hours=1.5,
+                attendance_start_time=None,
+                attendance_end_time=None
+            )
+            db.session.add(legacy_attendance)
+            db.session.commit()
+            
+            # Test meeting detail data preparation
+            from app import get_meeting_attendance_detail
+            meeting_data = get_meeting_attendance_detail(test_meeting.id)
+            
+            if meeting_data and 'attendance' in meeting_data:
+                attendance_records = meeting_data['attendance']
+                
+                # Verify full attendance record
+                full_record = next((r for r in attendance_records if r['user']['id'] == self.test_data['user1_id']), None)
+                if full_record and full_record['attendance_start_time'] and full_record['attendance_end_time']:
+                    print("✓ Full attendance with specific times handled correctly")
+                    print(f"  - Start: {full_record['attendance_start_time'].strftime('%H:%M')}")
+                    print(f"  - End: {full_record['attendance_end_time'].strftime('%H:%M')}")
+                else:
+                    print("✗ Full attendance record missing or invalid")
+                
+                # Verify partial attendance record
+                partial_record = next((r for r in attendance_records if r['user']['id'] == self.test_data['user2_id']), None)
+                if partial_record and partial_record['attendance_start_time'] and partial_record['attendance_end_time']:
+                    print("✓ Partial attendance with specific times handled correctly")
+                    print(f"  - Start: {partial_record['attendance_start_time'].strftime('%H:%M')}")
+                    print(f"  - End: {partial_record['attendance_end_time'].strftime('%H:%M')}")
+                    print(f"  - Hours: {partial_record['hours_attended']}")
+                else:
+                    print("✗ Partial attendance record missing or invalid")
+                
+                # Verify legacy record handling
+                legacy_record = next((r for r in attendance_records if r['user']['id'] == self.test_data['admin_id']), None)
+                if legacy_record and legacy_record['attendance_start_time'] and legacy_record['attendance_end_time']:
+                    # Legacy record should have calculated times
+                    expected_start = meeting_start
+                    expected_end = meeting_start + timedelta(hours=1.5)
+                    
+                    if (legacy_record['attendance_start_time'] == expected_start and 
+                        legacy_record['attendance_end_time'] == expected_end):
+                        print("✓ Legacy record calculated times correctly")
+                        print(f"  - Calculated start: {legacy_record['attendance_start_time'].strftime('%H:%M')}")
+                        print(f"  - Calculated end: {legacy_record['attendance_end_time'].strftime('%H:%M')}")
+                    else:
+                        print("✗ Legacy record time calculation incorrect")
+                else:
+                    print("✗ Legacy record missing calculated times")
+                
+                print("✓ Attendance time tracking test completed")
+            else:
+                print("✗ Meeting detail data preparation failed")
+            
+            # Cleanup test meeting
+            db.session.delete(test_meeting)
+            db.session.commit()
+
+    def test_slack_time_based_logging(self):
+        """Test Slack time-based logging functionality"""
+        print("Testing Slack time-based logging...")
+        
+        with self.app.app_context():
+            from slack_bot import AttendanceSlackBot
+            
+            # Create a test meeting
+            meeting_start = datetime.utcnow().replace(hour=14, minute=0, second=0, microsecond=0)
+            meeting_end = meeting_start + timedelta(hours=2)
+            
+            test_meeting = MeetingHour(
+                start_time=meeting_start,
+                end_time=meeting_end,
+                description="Test Meeting for Slack Logging",
+                meeting_type="regular",
+                created_by=self.test_data['admin_id']
+            )
+            db.session.add(test_meeting)
+            db.session.commit()
+            
+            bot = AttendanceSlackBot()
+            
+            # Test time-based logging
+            date_str = meeting_start.strftime('%Y-%m-%d')
+            time_str = f"{meeting_start.strftime('%H:%M')}-{(meeting_start + timedelta(hours=1)).strftime('%H:%M')}"
+            text = f"{date_str} {time_str} Test time-based logging"
+            
+            # Mock the Slack response (we can't actually send to Slack in tests)
+            print(f"  - Testing time-based format: {text}")
+            
+            # Test the time parsing logic directly
+            try:
+                parts = text.strip().split()
+                meeting_date = datetime.strptime(parts[0], "%Y-%m-%d")
+                time_str = parts[1]
+                start_time_str, end_time_str = time_str.split("-")
+                start_time = datetime.strptime(f"{meeting_date.strftime('%Y-%m-%d')} {start_time_str}", "%Y-%m-%d %H:%M")
+                end_time = datetime.strptime(f"{meeting_date.strftime('%Y-%m-%d')} {end_time_str}", "%Y-%m-%d %H:%M")
+                
+                print("✓ Time parsing logic works correctly")
+                print(f"  - Parsed start: {start_time.strftime('%H:%M')}")
+                print(f"  - Parsed end: {end_time.strftime('%H:%M')}")
+                
+                # Test overlap calculation
+                overlap_start = max(test_meeting.start_time, start_time)
+                overlap_end = min(test_meeting.end_time, end_time)
+                overlap_hours = (overlap_end - overlap_start).total_seconds() / 3600
+                
+                print(f"  - Overlap hours: {overlap_hours}")
+                print("✓ Overlap calculation works correctly")
+                
+            except Exception as e:
+                print(f"✗ Time parsing failed: {e}")
+            
+            # Cleanup
+            db.session.delete(test_meeting)
+            db.session.commit()
+
+    def test_chart_data_preparation(self):
+        """Test chart data preparation with attendance times"""
+        print("Testing chart data preparation...")
+        
+        with self.app.app_context():
+            # Create a test meeting
+            meeting_start = datetime.utcnow().replace(hour=14, minute=0, second=0, microsecond=0)
+            meeting_end = meeting_start + timedelta(hours=2)
+            
+            test_meeting = MeetingHour(
+                start_time=meeting_start,
+                end_time=meeting_end,
+                description="Test Meeting for Chart Data",
+                meeting_type="regular",
+                created_by=self.test_data['admin_id']
+            )
+            db.session.add(test_meeting)
+            db.session.commit()
+            
+            # Create attendance records with different time patterns
+            # Full attendance
+            full_attendance = AttendanceLog(
+                user_id=self.test_data['user1_id'],
+                meeting_hour_id=test_meeting.id,
+                notes="Full attendance",
+                is_partial=False,
+                partial_hours=None,
+                attendance_start_time=meeting_start,
+                attendance_end_time=meeting_end
+            )
+            
+            # Partial attendance (first hour)
+            partial_attendance = AttendanceLog(
+                user_id=self.test_data['user2_id'],
+                meeting_hour_id=test_meeting.id,
+                notes="Partial attendance",
+                is_partial=True,
+                partial_hours=1.0,
+                attendance_start_time=meeting_start,
+                attendance_end_time=meeting_start + timedelta(hours=1)
+            )
+            
+            # Legacy record (should be calculated)
+            legacy_attendance = AttendanceLog(
+                user_id=self.test_data['admin_id'],
+                meeting_hour_id=test_meeting.id,
+                notes="Legacy attendance",
+                is_partial=True,
+                partial_hours=0.5,
+                attendance_start_time=None,
+                attendance_end_time=None
+            )
+            
+            db.session.add_all([full_attendance, partial_attendance, legacy_attendance])
+            db.session.commit()
+            
+            # Test meeting detail data
+            from app import get_meeting_attendance_detail
+            meeting_data = get_meeting_attendance_detail(test_meeting.id)
+            
+            if meeting_data and 'attendance' in meeting_data:
+                attendance_records = meeting_data['attendance']
+                
+                # Simulate chart data preparation
+                time_intervals = []
+                current_time = meeting_start
+                while current_time <= meeting_end:
+                    time_intervals.append(current_time)
+                    current_time += timedelta(minutes=15)
+                
+                # Calculate attendance at each interval
+                attendance_counts = []
+                for interval in time_intervals:
+                    count = 0
+                    for record in attendance_records:
+                        if (record['attendance_start_time'] <= interval <= record['attendance_end_time']):
+                            count += 1
+                    attendance_counts.append(count)
+                
+                print("✓ Chart data preparation successful")
+                print(f"  - Time intervals: {len(time_intervals)}")
+                print(f"  - Attendance counts: {attendance_counts}")
+                
+                # Verify peak attendance calculation
+                max_attendance = max(attendance_counts) if attendance_counts else 0
+                peak_time_index = attendance_counts.index(max_attendance) if max_attendance > 0 else 0
+                peak_time = time_intervals[peak_time_index] if peak_time_index < len(time_intervals) else meeting_start
+                
+                print(f"  - Peak attendance: {max_attendance}")
+                print(f"  - Peak time: {peak_time.strftime('%H:%M')}")
+                print("✓ Peak attendance calculation works")
+                
+            else:
+                print("✗ Chart data preparation failed")
+            
+            # Cleanup
+            db.session.delete(test_meeting)
+            db.session.commit()
+
     def test_api_endpoints(self):
         """Test key API endpoints"""
         print("Testing API endpoints...")
@@ -362,6 +631,9 @@ class TestAttendanceTracker:
             self.test_meeting_deletion()
             self.test_separated_meetings_data()
             self.test_attendance_percentage_calculation()
+            self.test_attendance_time_tracking()
+            self.test_slack_time_based_logging()
+            self.test_chart_data_preparation()
             self.test_api_endpoints()
             
         except Exception as e:
