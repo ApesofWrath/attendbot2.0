@@ -1105,9 +1105,11 @@ def get_meeting_attendance_detail(meeting_id):
         AttendanceLog.meeting_hour_id == meeting_id
     ).order_by(AttendanceLog.logged_at).all()
     
-    # Get excuses for this meeting
-    excuses = db.session.query(Excuse, User).join(
+    # Get excuses for this meeting with created_by_user info
+    excuses = db.session.query(Excuse, User, User).join(
         User, Excuse.user_id == User.id
+    ).join(
+        User, Excuse.created_by == User.id, aliased=True
     ).filter(
         Excuse.meeting_hour_id == meeting_id
     ).all()
@@ -1139,12 +1141,17 @@ def get_meeting_attendance_detail(meeting_id):
     
     # Process excuse data
     excuse_data = []
-    for excuse, user in excuses:
+    for excuse, user, created_by_user in excuses:
         excuse_data.append({
             'excuse': {
                 'id': excuse.id,
                 'reason': excuse.reason,
-                'created_at': excuse.created_at.isoformat()
+                'created_at': excuse.created_at.isoformat(),
+                'created_by_user': {
+                    'id': created_by_user.id,
+                    'username': created_by_user.username,
+                    'is_admin': created_by_user.is_admin
+                }
             },
             'user': {
                 'id': user.id,
