@@ -50,7 +50,7 @@
                             <tr>
                                 <td id="selectCell_{{ user.id }}" style="display: none;">
                                     <div class="form-check">
-                                        <input class="form-check-input user-checkbox" type="radio" name="userSelection" value="{{ user.id }}" id="user_{{ user.id }}">
+                                        <input class="form-check-input user-checkbox" type="checkbox" value="{{ user.id }}" id="user_{{ user.id }}" onchange="handleUserSelection({{ user.id }}, '{{ user.username }}')">
                                         <label class="form-check-label" for="user_{{ user.id }}">
                                             Select
                                         </label>
@@ -315,8 +315,66 @@ function cancelCombineMode() {
     document.getElementById('combineUsersBtn').disabled = true;
 }
 
+function handleUserSelection(userId, username) {
+    const checkbox = document.getElementById(`user_${userId}`);
+    
+    if (checkbox.checked) {
+        // If no primary selected, make this primary
+        if (!selectedPrimary) {
+            selectedPrimary = { id: userId, username: username };
+            document.getElementById('primaryUserInfo').innerHTML = `
+                <div class="d-flex align-items-center">
+                    <i class="fas fa-star text-warning me-2"></i>
+                    <strong>${username}</strong>
+                </div>
+                <small class="text-muted">This user will be kept and receive all data from the secondary user</small>
+            `;
+        }
+        // If primary is selected but no secondary, make this secondary
+        else if (!selectedSecondary) {
+            selectedSecondary = { id: userId, username: username };
+            document.getElementById('secondaryUserInfo').innerHTML = `
+                <div class="d-flex align-items-center">
+                    <i class="fas fa-arrow-right text-info me-2"></i>
+                    <strong>${username}</strong>
+                </div>
+                <small class="text-muted">This user will be merged into the primary user and deleted</small>
+            `;
+        }
+        // If both are selected, uncheck this one and show message
+        else {
+            checkbox.checked = false;
+            alert('You can only select 2 users at a time. Please uncheck one user first.');
+            return;
+        }
+    } else {
+        // Handle unchecking
+        if (selectedPrimary && selectedPrimary.id === userId) {
+            selectedPrimary = null;
+            document.getElementById('primaryUserInfo').innerHTML = '<p class="text-muted">Select a user to be the primary user (the one to keep)</p>';
+        }
+        if (selectedSecondary && selectedSecondary.id === userId) {
+            selectedSecondary = null;
+            document.getElementById('secondaryUserInfo').innerHTML = '<p class="text-muted">Select a user to merge into the primary user</p>';
+        }
+    }
+    
+    updateCombineButton();
+}
+
 function selectAsPrimary(userId, username) {
+    // Uncheck all other checkboxes
+    document.querySelectorAll('.user-checkbox').forEach(cb => {
+        cb.checked = false;
+    });
+    
+    // Check this user's checkbox
+    document.getElementById(`user_${userId}`).checked = true;
+    
+    // Set as primary
     selectedPrimary = { id: userId, username: username };
+    selectedSecondary = null;
+    
     document.getElementById('primaryUserInfo').innerHTML = `
         <div class="d-flex align-items-center">
             <i class="fas fa-star text-warning me-2"></i>
@@ -324,11 +382,18 @@ function selectAsPrimary(userId, username) {
         </div>
         <small class="text-muted">This user will be kept and receive all data from the secondary user</small>
     `;
+    document.getElementById('secondaryUserInfo').innerHTML = '<p class="text-muted">Select a user to merge into the primary user</p>';
+    
     updateCombineButton();
 }
 
 function selectAsSecondary(userId, username) {
+    // Check this user's checkbox
+    document.getElementById(`user_${userId}`).checked = true;
+    
+    // Set as secondary
     selectedSecondary = { id: userId, username: username };
+    
     document.getElementById('secondaryUserInfo').innerHTML = `
         <div class="d-flex align-items-center">
             <i class="fas fa-arrow-right text-info me-2"></i>
@@ -336,6 +401,7 @@ function selectAsSecondary(userId, username) {
         </div>
         <small class="text-muted">This user will be merged into the primary user and deleted</small>
     `;
+    
     updateCombineButton();
 }
 
