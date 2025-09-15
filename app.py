@@ -1119,8 +1119,17 @@ def get_meeting_attendance_detail(meeting_id):
         total_hours = (meeting.end_time - meeting.start_time).total_seconds() / 3600
         
         attendance_data.append({
-            'log': log,
-            'user': user,
+            'log': {
+                'id': log.id,
+                'logged_at': log.logged_at.isoformat(),
+                'is_partial': log.is_partial,
+                'notes': log.notes
+            },
+            'user': {
+                'id': user.id,
+                'username': user.username,
+                'is_admin': user.is_admin
+            },
             'hours_attended': round(hours_attended, 2),
             'total_hours': round(total_hours, 2),
             'attendance_percentage': round((hours_attended / total_hours * 100) if total_hours > 0 else 0, 1),
@@ -1132,10 +1141,18 @@ def get_meeting_attendance_detail(meeting_id):
     excuse_data = []
     for excuse, user in excuses:
         excuse_data.append({
-            'excuse': excuse,
-            'user': user,
+            'excuse': {
+                'id': excuse.id,
+                'reason': excuse.reason,
+                'created_at': excuse.created_at.isoformat()
+            },
+            'user': {
+                'id': user.id,
+                'username': user.username,
+                'is_admin': user.is_admin
+            },
             'reason': excuse.reason,
-            'created_at': excuse.created_at
+            'created_at': excuse.created_at.isoformat()
         })
     
     return {

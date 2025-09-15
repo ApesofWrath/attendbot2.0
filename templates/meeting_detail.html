@@ -177,7 +177,7 @@
                                     {% endif %}
                                 </td>
                                 <td>
-                                    <small>{{ item.log.logged_at.strftime('%Y-%m-%d %H:%M') }}</small>
+                                    <small>{{ item.log.logged_at[:16].replace('T', ' ') }}</small>
                                 </td>
                                 <td>
                                     {% if item.notes %}
