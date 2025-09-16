@@ -268,6 +268,7 @@ class AttendanceSlackBot:
                 return self._send_private_response(channel_id, user_id, "❌ Invalid time format. Use HH:MM-HH:MM (e.g., 14:00-15:30).")
             
             # Find meetings that overlap with the specified time range
+            # Include meetings with 0 length (start_time == end_time)
             meetings = MeetingHour.query.filter(
                 db.func.date(MeetingHour.start_time) == meeting_date.date(),
                 MeetingHour.meeting_type == 'regular',
@@ -288,6 +289,12 @@ class AttendanceSlackBot:
                 overlap_end = min(meeting.end_time, end_time)
                 overlap_duration = (overlap_end - overlap_start).total_seconds() / 3600
                 
+                # For 0-length meetings (start_time == end_time), check if the meeting time falls within the logged time range
+                if meeting.start_time == meeting.end_time:
+                    # If it's a 0-length meeting, consider it a match if the meeting time is within the logged time range
+                    if meeting.start_time >= start_time and meeting.start_time <= end_time:
+                        overlap_duration = (end_time - start_time).total_seconds() / 3600  # Use full logged duration
+                
                 if overlap_duration > max_overlap:
                     max_overlap = overlap_duration
                     best_meeting = meeting
@@ -304,14 +311,24 @@ class AttendanceSlackBot:
             if existing_log:
                 return self._send_private_response(channel_id, user_id, f"❌ Attendance already logged for {best_meeting.description} on {meeting_date.strftime('%Y-%m-%d')}.")
             
-            # Calculate actual hours attended (overlap with meeting)
-            actual_start = max(best_meeting.start_time, start_time)
-            actual_end = min(best_meeting.end_time, end_time)
-            hours_attended = (actual_end - actual_start).total_seconds() / 3600
-            meeting_duration = (best_meeting.end_time - best_meeting.start_time).total_seconds() / 3600
-            
-            # Determine if this is partial attendance
-            is_partial = hours_attended < meeting_duration
+            # Calculate actual hours attended
+            # For 0-length meetings, use the full logged time range
+            if best_meeting.start_time == best_meeting.end_time:
+                actual_start = start_time
+                actual_end = end_time
+                hours_attended = (actual_end - actual_start).total_seconds() / 3600
+                meeting_duration = 0  # 0-length meeting
+                is_partial = False  # Not considered partial for 0-length meetings
+            else:
+                # For regular meetings, allow logging more hours than meeting duration
+                actual_start = max(best_meeting.start_time, start_time)
+                actual_end = min(best_meeting.end_time, end_time)
+                hours_attended = (actual_end - actual_start).total_seconds() / 3600
+                meeting_duration = (best_meeting.end_time - best_meeting.start_time).total_seconds() / 3600
+                
+                # Only consider it partial if the logged time is less than the meeting duration
+                # Allow logging more hours than meeting duration (extended attendance)
+                is_partial = hours_attended < meeting_duration
             
             # Create attendance log
             attendance_log = AttendanceLog(
@@ -327,8 +344,12 @@ class AttendanceSlackBot:
             db.session.add(attendance_log)
             db.session.commit()
             
-            if is_partial:
+            if best_meeting.start_time == best_meeting.end_time:
+                return self._send_private_response(channel_id, user_id, f"✅ Attendance logged: {hours_attended:.1f}h for {best_meeting.description} on {meeting_date.strftime('%Y-%m-%d')} (0-length meeting)")
+            elif is_partial:
                 return self._send_private_response(channel_id, user_id, f"✅ Partial attendance logged: {hours_attended:.1f}h of {meeting_duration:.1f}h for {best_meeting.description} on {meeting_date.strftime('%Y-%m-%d')}")
+            elif hours_attended > meeting_duration:
+                return self._send_private_response(channel_id, user_id, f"✅ Extended attendance logged: {hours_attended:.1f}h (meeting was {meeting_duration:.1f}h) for {best_meeting.description} on {meeting_date.strftime('%Y-%m-%d')}")
             else:
                 return self._send_private_response(channel_id, user_id, f"✅ Full attendance logged: {hours_attended:.1f}h for {best_meeting.description} on {meeting_date.strftime('%Y-%m-%d')}")
             
@@ -428,6 +449,7 @@ class AttendanceSlackBot:
                 return self._send_private_response(channel_id, user_id, "❌ Invalid time format. Use HH:MM-HH:MM (e.g., 14:00-15:30).")
             
             # Find outreach events that overlap with the specified time range
+            # Include events with 0 length (start_time == end_time)
             outreach_events = MeetingHour.query.filter(
                 db.func.date(MeetingHour.start_time) == outreach_date.date(),
                 MeetingHour.meeting_type == 'outreach',
@@ -448,6 +470,12 @@ class AttendanceSlackBot:
                 overlap_end = min(event.end_time, end_time)
                 overlap_duration = (overlap_end - overlap_start).total_seconds() / 3600
                 
+                # For 0-length events (start_time == end_time), check if the event time falls within the logged time range
+                if event.start_time == event.end_time:
+                    # If it's a 0-length event, consider it a match if the event time is within the logged time range
+                    if event.start_time >= start_time and event.start_time <= end_time:
+                        overlap_duration = (end_time - start_time).total_seconds() / 3600  # Use full logged duration
+                
                 if overlap_duration > max_overlap:
                     max_overlap = overlap_duration
                     best_event = event
@@ -464,14 +492,24 @@ class AttendanceSlackBot:
             if existing_log:
                 return self._send_private_response(channel_id, user_id, f"❌ Outreach attendance already logged for {best_event.description} on {outreach_date.strftime('%Y-%m-%d')}.")
             
-            # Calculate actual hours attended (overlap with event)
-            actual_start = max(best_event.start_time, start_time)
-            actual_end = min(best_event.end_time, end_time)
-            hours_attended = (actual_end - actual_start).total_seconds() / 3600
-            event_duration = (best_event.end_time - best_event.start_time).total_seconds() / 3600
-            
-            # Determine if this is partial attendance
-            is_partial = hours_attended < event_duration
+            # Calculate actual hours attended
+            # For 0-length events, use the full logged time range
+            if best_event.start_time == best_event.end_time:
+                actual_start = start_time
+                actual_end = end_time
+                hours_attended = (actual_end - actual_start).total_seconds() / 3600
+                event_duration = 0  # 0-length event
+                is_partial = False  # Not considered partial for 0-length events
+            else:
+                # For regular events, allow logging more hours than event duration
+                actual_start = max(best_event.start_time, start_time)
+                actual_end = min(best_event.end_time, end_time)
+                hours_attended = (actual_end - actual_start).total_seconds() / 3600
+                event_duration = (best_event.end_time - best_event.start_time).total_seconds() / 3600
+                
+                # Only consider it partial if the logged time is less than the event duration
+                # Allow logging more hours than event duration (extended attendance)
+                is_partial = hours_attended < event_duration
             
             # Create attendance log
             attendance_log = AttendanceLog(
@@ -487,8 +525,12 @@ class AttendanceSlackBot:
             db.session.add(attendance_log)
             db.session.commit()
             
-            if is_partial:
+            if best_event.start_time == best_event.end_time:
+                return self._send_private_response(channel_id, user_id, f"✅ Outreach attendance logged: {hours_attended:.1f}h for {best_event.description} on {outreach_date.strftime('%Y-%m-%d')} (0-length event)")
+            elif is_partial:
                 return self._send_private_response(channel_id, user_id, f"✅ Partial outreach attendance logged: {hours_attended:.1f}h of {event_duration:.1f}h for {best_event.description} on {outreach_date.strftime('%Y-%m-%d')}")
+            elif hours_attended > event_duration:
+                return self._send_private_response(channel_id, user_id, f"✅ Extended outreach attendance logged: {hours_attended:.1f}h (event was {event_duration:.1f}h) for {best_event.description} on {outreach_date.strftime('%Y-%m-%d')}")
             else:
                 return self._send_private_response(channel_id, user_id, f"✅ Full outreach attendance logged: {hours_attended:.1f}h for {best_event.description} on {outreach_date.strftime('%Y-%m-%d')}")
             
