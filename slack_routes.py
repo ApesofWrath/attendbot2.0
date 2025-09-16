@@ -43,6 +43,10 @@ def slack_events():
             if event.get('type') == 'app_mention':
                 handle_app_mention(event)
             
+            # Handle direct messages
+            elif event.get('type') == 'message':
+                handle_direct_message(event)
+            
             # Handle slash commands
             elif event.get('type') == 'slash_command':
                 handle_slash_command(event)
@@ -66,14 +70,78 @@ def slack_commands():
     response = bot.handle_command(command, user_id, channel_id, text)
     
     if response:
-        return jsonify({'response_type': 'in_channel'})
+        # Since the bot sends ephemeral messages directly, we don't need to return a response
+        # Slack will show the command as processed but the actual response is ephemeral
+        return '', 200
     else:
         return jsonify({'response_type': 'ephemeral', 'text': 'Error processing command'})
 
 def handle_app_mention(event):
-    """Handle when the bot is mentioned"""
-    # This could be used for interactive features
-    pass
+    """Handle when the bot is mentioned in a channel"""
+    try:
+        user_id = event.get('user')
+        channel_id = event.get('channel')
+        text = event.get('text', '')
+        
+        # Remove the bot mention from the text
+        # Text format: "<@U1234567890> command args"
+        bot_user_id = event.get('bot_id') or event.get('user')
+        mention_pattern = f"<@{bot_user_id}>"
+        if text.startswith(mention_pattern):
+            text = text[len(mention_pattern):].strip()
+        
+        logger.info(f"App mention from {user_id} in {channel_id}: {text}")
+        
+        # Process as a command
+        if text:
+            # Parse the command (first word is the command)
+            parts = text.split()
+            command = f"/{parts[0]}" if parts else "/help"
+            command_text = " ".join(parts[1:]) if len(parts) > 1 else ""
+            
+            response = bot.handle_command(command, user_id, channel_id, command_text)
+            
+        else:
+            # No command provided, show help
+            response = bot.handle_command("/help", user_id, channel_id, "")
+            
+    except Exception as e:
+        logger.error(f"Error handling app mention: {e}")
+        bot._send_ephemeral_message(channel_id, user_id, "❌ Error processing your request. Please try again.")
+
+def handle_direct_message(event):
+    """Handle direct messages to the bot"""
+    try:
+        # Only process messages from users (not from bots)
+        if event.get('bot_id') or event.get('subtype'):
+            return
+            
+        user_id = event.get('user')
+        channel_id = event.get('channel')
+        text = event.get('text', '')
+        
+        # Check if this is a DM (channel starts with 'D')
+        if not channel_id.startswith('D'):
+            return
+            
+        logger.info(f"Direct message from {user_id}: {text}")
+        
+        # Process as a command
+        if text:
+            # Parse the command (first word is the command)
+            parts = text.split()
+            command = f"/{parts[0]}" if parts else "/help"
+            command_text = " ".join(parts[1:]) if len(parts) > 1 else ""
+            
+            response = bot.handle_command(command, user_id, channel_id, command_text)
+            
+        else:
+            # No command provided, show help
+            response = bot.handle_command("/help", user_id, channel_id, "")
+            
+    except Exception as e:
+        logger.error(f"Error handling direct message: {e}")
+        bot._send_message(channel_id, "❌ Error processing your request. Please try again.")
 
 def handle_slash_command(event):
     """Handle slash command events"""
