@@ -94,6 +94,7 @@ Add these slash commands to your Slack app:
 | `/add_outreach` | `https://your-domain.com/slack/commands` | Add an outreach event |
 | `/log_attendance` | `https://your-domain.com/slack/commands` | Log regular meeting attendance (supports both meeting_id and date-based logging) |
 | `/log_outreach` | `https://your-domain.com/slack/commands` | Log outreach attendance |
+| `/edit_attendance` | `https://your-domain.com/slack/commands` | Edit existing attendance by time range |
 | `/request_excuse` | `https://your-domain.com/slack/commands` | Request excuse for a meeting |
 | `/create_period` | `https://your-domain.com/slack/commands` | Create reporting period |
 | `/excuse` | `https://your-domain.com/slack/commands` | Excuse user from meeting (admin only) |
@@ -268,15 +269,29 @@ python -c "from app import app, db; app.app_context().push(); db.create_all()"
 /log_outreach 2024-01-16 10:00-11:30 Left early for another commitment
 ```
 
-##### Other Commands
+##### Edit Attendance
 
 ```bash
-# Request excuse for a meeting
+# Edit existing attendance by time range
+/edit_attendance 2024-01-15 14:30-16:00 Updated attendance times
+
+# Edit attendance with notes
+/edit_attendance 2024-01-15 14:00-15:45 Corrected my actual attendance time
+```
+
+##### Excuse Requests
+
+```bash
+# Request excuse for a meeting by ID
 /request_excuse 123 Family emergency
 
 # Request excuse by date
 /request_excuse 2024-01-15 Medical appointment
+```
 
+##### Other Commands
+
+```bash
 # View your attendance summary
 /my_attendance
 
@@ -306,6 +321,8 @@ Access the web interface at `http://localhost:5001` (development) or your produc
 
 #### Features:
 - **Dashboard**: View personal attendance metrics and current status
+- **Log Attendance**: One-click attendance logging with time-based input
+- **Edit Attendance**: Modify existing attendance records with start/end times
 - **Admin Panel**: Manage meetings, periods, and excuses
 - **Reports**: Detailed attendance reports for each period
 - **Meeting Details**: Individual meeting views with attendance charts
@@ -408,8 +425,10 @@ psql $DATABASE_URL  # for PostgreSQL
 - `meeting_hour_id`: Meeting attended
 - `logged_at`: When attendance was logged
 - `notes`: Optional notes
-- `hours_attended`: Hours actually attended (required)
+- `partial_hours`: Hours actually attended (for partial attendance)
 - `is_partial`: Whether this is partial attendance
+- `attendance_start_time`: Actual start time of attendance
+- `attendance_end_time`: Actual end time of attendance
 
 ### Reporting Periods
 - `id`: Primary key
@@ -441,11 +460,14 @@ Total Outreach Hours = Sum of all outreach event durations
 Attended Outreach Hours = Sum of attended outreach event durations
 ```
 
-### Hour-Based Tracking
-- Users must specify the number of hours they attended for each meeting
+### Time-Based Tracking
+- Users specify start and end times of their actual attendance
+- System automatically calculates hours attended based on time overlap with meeting duration
 - Partial attendance is supported - users can log fewer hours than the total meeting duration
 - Full attendance means the user attended for the entire meeting duration
+- Extended attendance is allowed - users can log more hours than the meeting duration
 - Excused meetings are excluded from the total hours calculation
+- Legacy records without specific times are handled intelligently
 
 ### Requirements
 - **Regular Meetings**: 60% (team) / 75% (travel)
