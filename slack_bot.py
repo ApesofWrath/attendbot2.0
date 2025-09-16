@@ -1061,24 +1061,14 @@ class AttendanceSlackBot:
         """Create Block Kit blocks for the App Home view"""
         blocks = []
         
-        # Header
+        # Simple header
         blocks.append({
             "type": "header",
             "text": {
                 "type": "plain_text",
-                "text": f"Welcome, {user.username}! 👋"
+                "text": f"Attendance Dashboard - {user.username}"
             }
         })
-        
-        blocks.append({
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": "Here you can log your attendance, edit existing records, and view recent meetings."
-            }
-        })
-        
-        blocks.append({"type": "divider"})
         
         # Get recent meetings
         regular_meetings = self._get_recent_meetings('regular', user.id)
@@ -1089,7 +1079,7 @@ class AttendanceSlackBot:
             "type": "header",
             "text": {
                 "type": "plain_text",
-                "text": "📅 Recent Regular Meetings"
+                "text": "Regular Meetings"
             }
         })
         
@@ -1114,7 +1104,7 @@ class AttendanceSlackBot:
             "type": "header",
             "text": {
                 "type": "plain_text",
-                "text": "🌟 Recent Outreach Meetings"
+                "text": "Outreach Meetings"
             }
         })
         
@@ -1139,7 +1129,7 @@ class AttendanceSlackBot:
                 "type": "header",
                 "text": {
                     "type": "plain_text",
-                    "text": "⚙️ Admin Controls"
+                    "text": "Admin Controls"
                 }
             })
             
@@ -1176,7 +1166,7 @@ class AttendanceSlackBot:
                     "type": "button",
                     "text": {
                         "type": "plain_text",
-                        "text": "🔄 Refresh"
+                        "text": "Refresh"
                     },
                     "action_id": "refresh_app_home"
                 }
@@ -1212,13 +1202,13 @@ class AttendanceSlackBot:
         blocks = []
         
         # Format meeting info
-        start_time = meeting.start_time.strftime('%m/%d/%Y %I:%M %p')
+        start_time = meeting.start_time.strftime('%m/%d %I:%M %p')
         end_time = meeting.end_time.strftime('%I:%M %p')
         duration = (meeting.end_time - meeting.start_time).total_seconds() / 3600
         
         # Meeting title and basic info
         meeting_text = f"*{meeting.description}*\n"
-        meeting_text += f"📅 {start_time} - {end_time} ({duration:.1f}h)"
+        meeting_text += f"{start_time} - {end_time} ({duration:.1f}h)"
         
         # Add attendance status
         if attendance_log:
@@ -1226,13 +1216,13 @@ class AttendanceSlackBot:
                 att_start = attendance_log.attendance_start_time.strftime('%I:%M %p')
                 att_end = attendance_log.attendance_end_time.strftime('%I:%M %p')
                 hours_attended = (attendance_log.attendance_end_time - attendance_log.attendance_start_time).total_seconds() / 3600
-                meeting_text += f"\n✅ *Attended:* {att_start} - {att_end} ({hours_attended:.1f}h)"
+                meeting_text += f"\nAttended: {att_start} - {att_end} ({hours_attended:.1f}h)"
                 if attendance_log.notes:
-                    meeting_text += f"\n📝 *Notes:* {attendance_log.notes}"
+                    meeting_text += f"\nNotes: {attendance_log.notes}"
             else:
-                meeting_text += f"\n✅ *Attended* (Full meeting)"
+                meeting_text += f"\nAttended (Full meeting)"
         else:
-            meeting_text += f"\n❌ *Not logged*"
+            meeting_text += f"\nNot logged"
         
         # Create the main section
         section_block = {
@@ -1249,7 +1239,7 @@ class AttendanceSlackBot:
                 "type": "button",
                 "text": {
                     "type": "plain_text",
-                    "text": "Edit Attendance"
+                    "text": "Edit"
                 },
                 "action_id": f"edit_attendance_{meeting.id}",
                 "style": "primary"
@@ -1259,7 +1249,7 @@ class AttendanceSlackBot:
                 "type": "button",
                 "text": {
                     "type": "plain_text",
-                    "text": "Log Attendance"
+                    "text": "Log"
                 },
                 "action_id": f"log_attendance_{meeting.id}",
                 "style": "primary"
@@ -1276,7 +1266,7 @@ class AttendanceSlackBot:
                 "type": "header",
                 "text": {
                     "type": "plain_text",
-                    "text": "❌ Error"
+                    "text": "Error"
                 }
             },
             {
@@ -1326,7 +1316,7 @@ class AttendanceSlackBot:
                     },
                     "submit": {
                         "type": "plain_text",
-                        "text": "Log Attendance"
+                        "text": "Log"
                     },
                     "close": {
                         "type": "plain_text",
@@ -1357,7 +1347,7 @@ class AttendanceSlackBot:
                             },
                             "label": {
                                 "type": "plain_text",
-                                "text": "Start Time (HH:MM)"
+                                "text": "Start Time"
                             }
                         },
                         {
@@ -1374,7 +1364,7 @@ class AttendanceSlackBot:
                             },
                             "label": {
                                 "type": "plain_text",
-                                "text": "End Time (HH:MM)"
+                                "text": "End Time"
                             }
                         },
                         {
@@ -1386,12 +1376,12 @@ class AttendanceSlackBot:
                                 "multiline": True,
                                 "placeholder": {
                                     "type": "plain_text",
-                                    "text": "Optional notes about your attendance"
+                                    "text": "Optional notes"
                                 }
                             },
                             "label": {
                                 "type": "plain_text",
-                                "text": "Notes (Optional)"
+                                "text": "Notes"
                             },
                             "optional": True
                         }
@@ -1450,7 +1440,7 @@ class AttendanceSlackBot:
                     },
                     "submit": {
                         "type": "plain_text",
-                        "text": "Update Attendance"
+                        "text": "Update"
                     },
                     "close": {
                         "type": "plain_text",
@@ -1481,7 +1471,7 @@ class AttendanceSlackBot:
                             },
                             "label": {
                                 "type": "plain_text",
-                                "text": "Start Time (HH:MM)"
+                                "text": "Start Time"
                             }
                         },
                         {
@@ -1498,7 +1488,7 @@ class AttendanceSlackBot:
                             },
                             "label": {
                                 "type": "plain_text",
-                                "text": "End Time (HH:MM)"
+                                "text": "End Time"
                             }
                         },
                         {
@@ -1510,13 +1500,13 @@ class AttendanceSlackBot:
                                 "multiline": True,
                                 "placeholder": {
                                     "type": "plain_text",
-                                    "text": "Optional notes about your attendance"
+                                    "text": "Optional notes"
                                 },
                                 "initial_value": current_notes
                             },
                             "label": {
                                 "type": "plain_text",
-                                "text": "Notes (Optional)"
+                                "text": "Notes"
                             },
                             "optional": True
                         }
@@ -1590,7 +1580,7 @@ class AttendanceSlackBot:
                             },
                             "label": {
                                 "type": "plain_text",
-                                "text": "Start Time (HH:MM)"
+                                "text": "Start Time"
                             }
                         },
                         {
@@ -1606,7 +1596,7 @@ class AttendanceSlackBot:
                             },
                             "label": {
                                 "type": "plain_text",
-                                "text": "End Time (HH:MM)"
+                                "text": "End Time"
                             }
                         },
                         {
