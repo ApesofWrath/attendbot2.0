@@ -1084,29 +1084,6 @@ class AttendanceSlackBot:
         })
         
         if regular_meetings:
-            # Add table header
-            blocks.append({
-                "type": "section",
-                "fields": [
-                    {
-                        "type": "mrkdwn",
-                        "text": "*Date*"
-                    },
-                    {
-                        "type": "mrkdwn",
-                        "text": "*Meeting Hours*"
-                    },
-                    {
-                        "type": "mrkdwn",
-                        "text": "*Hours Attended*"
-                    },
-                    {
-                        "type": "mrkdwn",
-                        "text": "*Status*"
-                    }
-                ]
-            })
-            
             for meeting_data in regular_meetings:
                 meeting = meeting_data['meeting']
                 attendance_log = meeting_data['attendance_log']
@@ -1132,29 +1109,6 @@ class AttendanceSlackBot:
         })
         
         if outreach_meetings:
-            # Add table header
-            blocks.append({
-                "type": "section",
-                "fields": [
-                    {
-                        "type": "mrkdwn",
-                        "text": "*Date*"
-                    },
-                    {
-                        "type": "mrkdwn",
-                        "text": "*Meeting Hours*"
-                    },
-                    {
-                        "type": "mrkdwn",
-                        "text": "*Hours Attended*"
-                    },
-                    {
-                        "type": "mrkdwn",
-                        "text": "*Status*"
-                    }
-                ]
-            })
-            
             for meeting_data in outreach_meetings:
                 meeting = meeting_data['meeting']
                 attendance_log = meeting_data['attendance_log']
@@ -1249,45 +1203,31 @@ class AttendanceSlackBot:
         
         # Format meeting info
         date_str = meeting.start_time.strftime('%m/%d')
-        start_time = meeting.start_time.strftime('%I:%M %p')
-        end_time = meeting.end_time.strftime('%I:%M %p')
-        duration = (meeting.end_time - meeting.start_time).total_seconds() / 3600
+        start_time = meeting.start_time.strftime('%H:%M')
+        end_time = meeting.end_time.strftime('%H:%M')
         
         # Prepare attendance info
         if attendance_log:
             if attendance_log.attendance_start_time and attendance_log.attendance_end_time:
-                att_start = attendance_log.attendance_start_time.strftime('%I:%M %p')
-                att_end = attendance_log.attendance_end_time.strftime('%I:%M %p')
-                hours_attended = (attendance_log.attendance_end_time - attendance_log.attendance_start_time).total_seconds() / 3600
-                attended_text = f"{att_start} - {att_end}\n({hours_attended:.1f}h)"
+                att_start = attendance_log.attendance_start_time.strftime('%H:%M')
+                att_end = attendance_log.attendance_end_time.strftime('%H:%M')
+                attended_text = f"{att_start} - {att_end}"
             else:
-                attended_text = "Full meeting"
+                attended_text = "Full"
             status_emoji = "✅"
         else:
             attended_text = "Not logged"
             status_emoji = "❌"
         
-        # Create table-like section using fields
+        # Create compact table row using text formatting
+        meeting_text = f"`{date_str}`  `{start_time}-{end_time}`  `{attended_text}`  {status_emoji}"
+        
         section_block = {
             "type": "section",
-            "fields": [
-                {
-                    "type": "mrkdwn",
-                    "text": f"*{date_str}*"
-                },
-                {
-                    "type": "mrkdwn",
-                    "text": f"{start_time} - {end_time}\n({duration:.1f}h)"
-                },
-                {
-                    "type": "mrkdwn",
-                    "text": attended_text
-                },
-                {
-                    "type": "mrkdwn",
-                    "text": status_emoji
-                }
-            ],
+            "text": {
+                "type": "mrkdwn",
+                "text": meeting_text
+            },
             "accessory": {
                 "type": "button",
                 "text": {
@@ -1300,18 +1240,6 @@ class AttendanceSlackBot:
         }
         
         blocks.append(section_block)
-        
-        # Add notes if they exist
-        if attendance_log and attendance_log.notes:
-            blocks.append({
-                "type": "context",
-                "elements": [
-                    {
-                        "type": "mrkdwn",
-                        "text": f"*Notes:* {attendance_log.notes}"
-                    }
-                ]
-            })
         
         return blocks
     
