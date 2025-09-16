@@ -1011,3 +1011,850 @@ class AttendanceSlackBot:
             ).order_by(MeetingHour.start_time).all()
             
             return meetings
+    
+    def update_app_home(self, user_id):
+        """Update the App Home view for a user"""
+        with self.app.app_context():
+            try:
+                # Get user from database
+                user = User.query.filter_by(slack_user_id=user_id).first()
+                
+                if not user:
+                    # Try to get user info from Slack and create user automatically
+                    slack_user_info = get_slack_user_info(user_id)
+                    if slack_user_info:
+                        if slack_user_info.get('email'):
+                            existing_user = User.query.filter_by(email=slack_user_info['email']).first()
+                            if existing_user:
+                                existing_user.slack_user_id = user_id
+                                db.session.commit()
+                                user = existing_user
+                            else:
+                                user = User(
+                                    slack_user_id=user_id,
+                                    email=slack_user_info['email'],
+                                    username=slack_user_info.get('display_name', slack_user_info.get('name', 'Slack User')),
+                                    is_admin=False
+                                )
+                                db.session.add(user)
+                                db.session.commit()
+                        else:
+                            # No user found and can't create one - show error
+                            blocks = self._create_error_blocks("Account not found. Please log in to the web app first to create your account.")
+                            self._publish_app_home_view(user_id, blocks)
+                            return
+                    else:
+                        blocks = self._create_error_blocks("Unable to retrieve your information. Please contact an admin.")
+                        self._publish_app_home_view(user_id, blocks)
+                        return
+                
+                # Create the App Home view
+                blocks = self._create_app_home_blocks(user)
+                self._publish_app_home_view(user_id, blocks)
+                
+            except Exception as e:
+                logger.error(f"Error updating app home for user {user_id}: {e}")
+                blocks = self._create_error_blocks("An error occurred while loading your attendance dashboard.")
+                self._publish_app_home_view(user_id, blocks)
+    
+    def _create_app_home_blocks(self, user):
+        """Create Block Kit blocks for the App Home view"""
+        blocks = []
+        
+        # Header
+        blocks.append({
+            "type": "header",
+            "text": {
+                "type": "plain_text",
+                "text": f"Welcome, {user.username}! 👋"
+            }
+        })
+        
+        blocks.append({
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": "Here you can log your attendance, edit existing records, and view recent meetings."
+            }
+        })
+        
+        blocks.append({"type": "divider"})
+        
+        # Get recent meetings
+        regular_meetings = self._get_recent_meetings('regular', user.id)
+        outreach_meetings = self._get_recent_meetings('outreach', user.id)
+        
+        # Regular meetings section
+        blocks.append({
+            "type": "header",
+            "text": {
+                "type": "plain_text",
+                "text": "📅 Recent Regular Meetings"
+            }
+        })
+        
+        if regular_meetings:
+            for meeting_data in regular_meetings:
+                meeting = meeting_data['meeting']
+                attendance_log = meeting_data['attendance_log']
+                blocks.extend(self._create_meeting_blocks(meeting, attendance_log, user.id))
+        else:
+            blocks.append({
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "No recent regular meetings found."
+                }
+            })
+        
+        blocks.append({"type": "divider"})
+        
+        # Outreach meetings section
+        blocks.append({
+            "type": "header",
+            "text": {
+                "type": "plain_text",
+                "text": "🌟 Recent Outreach Meetings"
+            }
+        })
+        
+        if outreach_meetings:
+            for meeting_data in outreach_meetings:
+                meeting = meeting_data['meeting']
+                attendance_log = meeting_data['attendance_log']
+                blocks.extend(self._create_meeting_blocks(meeting, attendance_log, user.id))
+        else:
+            blocks.append({
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "No recent outreach meetings found."
+                }
+            })
+        
+        # Admin controls
+        if user.is_admin:
+            blocks.append({"type": "divider"})
+            blocks.append({
+                "type": "header",
+                "text": {
+                    "type": "plain_text",
+                    "text": "⚙️ Admin Controls"
+                }
+            })
+            
+            blocks.append({
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {
+                            "type": "plain_text",
+                            "text": "Add Regular Meeting"
+                        },
+                        "action_id": "add_regular_meeting",
+                        "style": "primary"
+                    },
+                    {
+                        "type": "button",
+                        "text": {
+                            "type": "plain_text",
+                            "text": "Add Outreach Meeting"
+                        },
+                        "action_id": "add_outreach_meeting",
+                        "style": "primary"
+                    }
+                ]
+            })
+        
+        # Refresh button
+        blocks.append({"type": "divider"})
+        blocks.append({
+            "type": "actions",
+            "elements": [
+                {
+                    "type": "button",
+                    "text": {
+                        "type": "plain_text",
+                        "text": "🔄 Refresh"
+                    },
+                    "action_id": "refresh_app_home"
+                }
+            ]
+        })
+        
+        return blocks
+    
+    def _get_recent_meetings(self, meeting_type, user_id, limit=5):
+        """Get recent meetings of a specific type with attendance info"""
+        # Get recent meetings
+        meetings = MeetingHour.query.filter_by(meeting_type=meeting_type).order_by(
+            MeetingHour.start_time.desc()
+        ).limit(limit).all()
+        
+        meeting_data = []
+        for meeting in meetings:
+            # Check if user has logged attendance
+            attendance_log = AttendanceLog.query.filter_by(
+                user_id=user_id,
+                meeting_hour_id=meeting.id
+            ).first()
+            
+            meeting_data.append({
+                'meeting': meeting,
+                'attendance_log': attendance_log
+            })
+        
+        return meeting_data
+    
+    def _create_meeting_blocks(self, meeting, attendance_log, user_id):
+        """Create Block Kit blocks for a single meeting"""
+        blocks = []
+        
+        # Format meeting info
+        start_time = meeting.start_time.strftime('%m/%d/%Y %I:%M %p')
+        end_time = meeting.end_time.strftime('%I:%M %p')
+        duration = (meeting.end_time - meeting.start_time).total_seconds() / 3600
+        
+        # Meeting title and basic info
+        meeting_text = f"*{meeting.description}*\n"
+        meeting_text += f"📅 {start_time} - {end_time} ({duration:.1f}h)"
+        
+        # Add attendance status
+        if attendance_log:
+            if attendance_log.attendance_start_time and attendance_log.attendance_end_time:
+                att_start = attendance_log.attendance_start_time.strftime('%I:%M %p')
+                att_end = attendance_log.attendance_end_time.strftime('%I:%M %p')
+                hours_attended = (attendance_log.attendance_end_time - attendance_log.attendance_start_time).total_seconds() / 3600
+                meeting_text += f"\n✅ *Attended:* {att_start} - {att_end} ({hours_attended:.1f}h)"
+                if attendance_log.notes:
+                    meeting_text += f"\n📝 *Notes:* {attendance_log.notes}"
+            else:
+                meeting_text += f"\n✅ *Attended* (Full meeting)"
+        else:
+            meeting_text += f"\n❌ *Not logged*"
+        
+        # Create the main section
+        section_block = {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": meeting_text
+            }
+        }
+        
+        # Add action buttons
+        if attendance_log:
+            section_block["accessory"] = {
+                "type": "button",
+                "text": {
+                    "type": "plain_text",
+                    "text": "Edit Attendance"
+                },
+                "action_id": f"edit_attendance_{meeting.id}",
+                "style": "primary"
+            }
+        else:
+            section_block["accessory"] = {
+                "type": "button",
+                "text": {
+                    "type": "plain_text",
+                    "text": "Log Attendance"
+                },
+                "action_id": f"log_attendance_{meeting.id}",
+                "style": "primary"
+            }
+        
+        blocks.append(section_block)
+        
+        return blocks
+    
+    def _create_error_blocks(self, error_message):
+        """Create error blocks for App Home"""
+        return [
+            {
+                "type": "header",
+                "text": {
+                    "type": "plain_text",
+                    "text": "❌ Error"
+                }
+            },
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": error_message
+                }
+            }
+        ]
+    
+    def _publish_app_home_view(self, user_id, blocks):
+        """Publish the App Home view"""
+        try:
+            response = self.client.views_publish(
+                user_id=user_id,
+                view={
+                    "type": "home",
+                    "blocks": blocks
+                }
+            )
+            return response
+        except SlackApiError as e:
+            logger.error(f"Error publishing app home view: {e.response['error']}")
+            return None
+    
+    def open_log_attendance_modal(self, user_id, meeting_id, trigger_id):
+        """Open a modal for logging attendance"""
+        with self.app.app_context():
+            try:
+                meeting = MeetingHour.query.get(meeting_id)
+                if not meeting:
+                    logger.error(f"Meeting {meeting_id} not found")
+                    return
+                
+                # Format meeting times for display in modal
+                start_time_str = meeting.start_time.strftime('%H:%M')
+                end_time_str = meeting.end_time.strftime('%H:%M')
+                
+                modal = {
+                    "type": "modal",
+                    "callback_id": "log_attendance_modal",
+                    "private_metadata": str(meeting_id),
+                    "title": {
+                        "type": "plain_text",
+                        "text": "Log Attendance"
+                    },
+                    "submit": {
+                        "type": "plain_text",
+                        "text": "Log Attendance"
+                    },
+                    "close": {
+                        "type": "plain_text",
+                        "text": "Cancel"
+                    },
+                    "blocks": [
+                        {
+                            "type": "section",
+                            "text": {
+                                "type": "mrkdwn",
+                                "text": f"*Meeting:* {meeting.description}\n*Scheduled:* {meeting.start_time.strftime('%m/%d/%Y %I:%M %p')} - {meeting.end_time.strftime('%I:%M %p')}"
+                            }
+                        },
+                        {
+                            "type": "divider"
+                        },
+                        {
+                            "type": "input",
+                            "block_id": "start_time_block",
+                            "element": {
+                                "type": "plain_text_input",
+                                "action_id": "start_time_input",
+                                "placeholder": {
+                                    "type": "plain_text",
+                                    "text": "e.g., 15:30"
+                                },
+                                "initial_value": start_time_str
+                            },
+                            "label": {
+                                "type": "plain_text",
+                                "text": "Start Time (HH:MM)"
+                            }
+                        },
+                        {
+                            "type": "input",
+                            "block_id": "end_time_block",
+                            "element": {
+                                "type": "plain_text_input",
+                                "action_id": "end_time_input",
+                                "placeholder": {
+                                    "type": "plain_text",
+                                    "text": "e.g., 17:00"
+                                },
+                                "initial_value": end_time_str
+                            },
+                            "label": {
+                                "type": "plain_text",
+                                "text": "End Time (HH:MM)"
+                            }
+                        },
+                        {
+                            "type": "input",
+                            "block_id": "notes_block",
+                            "element": {
+                                "type": "plain_text_input",
+                                "action_id": "notes_input",
+                                "multiline": True,
+                                "placeholder": {
+                                    "type": "plain_text",
+                                    "text": "Optional notes about your attendance"
+                                }
+                            },
+                            "label": {
+                                "type": "plain_text",
+                                "text": "Notes (Optional)"
+                            },
+                            "optional": True
+                        }
+                    ]
+                }
+                
+                response = self.client.views_open(
+                    trigger_id=trigger_id,
+                    view=modal
+                )
+                return response
+                
+            except Exception as e:
+                logger.error(f"Error opening log attendance modal: {e}")
+                return None
+    
+    def open_edit_attendance_modal(self, user_id, meeting_id, trigger_id):
+        """Open a modal for editing existing attendance"""
+        with self.app.app_context():
+            try:
+                meeting = MeetingHour.query.get(meeting_id)
+                user = User.query.filter_by(slack_user_id=user_id).first()
+                
+                if not meeting or not user:
+                    logger.error(f"Meeting {meeting_id} or user {user_id} not found")
+                    return
+                
+                # Get existing attendance log
+                attendance_log = AttendanceLog.query.filter_by(
+                    user_id=user.id,
+                    meeting_hour_id=meeting_id
+                ).first()
+                
+                if not attendance_log:
+                    logger.error(f"No attendance log found for user {user.id} and meeting {meeting_id}")
+                    return
+                
+                # Get current attendance times
+                if attendance_log.attendance_start_time and attendance_log.attendance_end_time:
+                    start_time_str = attendance_log.attendance_start_time.strftime('%H:%M')
+                    end_time_str = attendance_log.attendance_end_time.strftime('%H:%M')
+                else:
+                    # Fallback to meeting times
+                    start_time_str = meeting.start_time.strftime('%H:%M')
+                    end_time_str = meeting.end_time.strftime('%H:%M')
+                
+                current_notes = attendance_log.notes or ""
+                
+                modal = {
+                    "type": "modal",
+                    "callback_id": "edit_attendance_modal",
+                    "private_metadata": str(meeting_id),
+                    "title": {
+                        "type": "plain_text",
+                        "text": "Edit Attendance"
+                    },
+                    "submit": {
+                        "type": "plain_text",
+                        "text": "Update Attendance"
+                    },
+                    "close": {
+                        "type": "plain_text",
+                        "text": "Cancel"
+                    },
+                    "blocks": [
+                        {
+                            "type": "section",
+                            "text": {
+                                "type": "mrkdwn",
+                                "text": f"*Meeting:* {meeting.description}\n*Scheduled:* {meeting.start_time.strftime('%m/%d/%Y %I:%M %p')} - {meeting.end_time.strftime('%I:%M %p')}"
+                            }
+                        },
+                        {
+                            "type": "divider"
+                        },
+                        {
+                            "type": "input",
+                            "block_id": "start_time_block",
+                            "element": {
+                                "type": "plain_text_input",
+                                "action_id": "start_time_input",
+                                "placeholder": {
+                                    "type": "plain_text",
+                                    "text": "e.g., 15:30"
+                                },
+                                "initial_value": start_time_str
+                            },
+                            "label": {
+                                "type": "plain_text",
+                                "text": "Start Time (HH:MM)"
+                            }
+                        },
+                        {
+                            "type": "input",
+                            "block_id": "end_time_block",
+                            "element": {
+                                "type": "plain_text_input",
+                                "action_id": "end_time_input",
+                                "placeholder": {
+                                    "type": "plain_text",
+                                    "text": "e.g., 17:00"
+                                },
+                                "initial_value": end_time_str
+                            },
+                            "label": {
+                                "type": "plain_text",
+                                "text": "End Time (HH:MM)"
+                            }
+                        },
+                        {
+                            "type": "input",
+                            "block_id": "notes_block",
+                            "element": {
+                                "type": "plain_text_input",
+                                "action_id": "notes_input",
+                                "multiline": True,
+                                "placeholder": {
+                                    "type": "plain_text",
+                                    "text": "Optional notes about your attendance"
+                                },
+                                "initial_value": current_notes
+                            },
+                            "label": {
+                                "type": "plain_text",
+                                "text": "Notes (Optional)"
+                            },
+                            "optional": True
+                        }
+                    ]
+                }
+                
+                response = self.client.views_open(
+                    trigger_id=trigger_id,
+                    view=modal
+                )
+                return response
+                
+            except Exception as e:
+                logger.error(f"Error opening edit attendance modal: {e}")
+                return None
+    
+    def open_add_meeting_modal(self, user_id, meeting_type, trigger_id):
+        """Open a modal for adding a new meeting"""
+        with self.app.app_context():
+            try:
+                user = User.query.filter_by(slack_user_id=user_id).first()
+                if not user or not user.is_admin:
+                    logger.error(f"User {user_id} is not authorized to add meetings")
+                    return
+                
+                title = "Add Regular Meeting" if meeting_type == 'regular' else "Add Outreach Meeting"
+                callback_id = "add_meeting_modal" if meeting_type == 'regular' else "add_outreach_modal"
+                
+                modal = {
+                    "type": "modal",
+                    "callback_id": callback_id,
+                    "title": {
+                        "type": "plain_text",
+                        "text": title
+                    },
+                    "submit": {
+                        "type": "plain_text",
+                        "text": "Create Meeting"
+                    },
+                    "close": {
+                        "type": "plain_text",
+                        "text": "Cancel"
+                    },
+                    "blocks": [
+                        {
+                            "type": "input",
+                            "block_id": "date_block",
+                            "element": {
+                                "type": "datepicker",
+                                "action_id": "date_input",
+                                "placeholder": {
+                                    "type": "plain_text",
+                                    "text": "Select a date"
+                                }
+                            },
+                            "label": {
+                                "type": "plain_text",
+                                "text": "Meeting Date"
+                            }
+                        },
+                        {
+                            "type": "input",
+                            "block_id": "start_time_block",
+                            "element": {
+                                "type": "plain_text_input",
+                                "action_id": "start_time_input",
+                                "placeholder": {
+                                    "type": "plain_text",
+                                    "text": "e.g., 15:30"
+                                }
+                            },
+                            "label": {
+                                "type": "plain_text",
+                                "text": "Start Time (HH:MM)"
+                            }
+                        },
+                        {
+                            "type": "input",
+                            "block_id": "end_time_block",
+                            "element": {
+                                "type": "plain_text_input",
+                                "action_id": "end_time_input",
+                                "placeholder": {
+                                    "type": "plain_text",
+                                    "text": "e.g., 17:00"
+                                }
+                            },
+                            "label": {
+                                "type": "plain_text",
+                                "text": "End Time (HH:MM)"
+                            }
+                        },
+                        {
+                            "type": "input",
+                            "block_id": "description_block",
+                            "element": {
+                                "type": "plain_text_input",
+                                "action_id": "description_input",
+                                "placeholder": {
+                                    "type": "plain_text",
+                                    "text": "Meeting description"
+                                }
+                            },
+                            "label": {
+                                "type": "plain_text",
+                                "text": "Description"
+                            }
+                        }
+                    ]
+                }
+                
+                response = self.client.views_open(
+                    trigger_id=trigger_id,
+                    view=modal
+                )
+                return response
+                
+            except Exception as e:
+                logger.error(f"Error opening add meeting modal: {e}")
+                return None
+    
+    def handle_attendance_modal_submission(self, user_id, meeting_id, start_time, end_time, notes):
+        """Handle attendance logging modal submission"""
+        with self.app.app_context():
+            try:
+                user = User.query.filter_by(slack_user_id=user_id).first()
+                meeting = MeetingHour.query.get(meeting_id)
+                
+                if not user or not meeting:
+                    logger.error(f"User {user_id} or meeting {meeting_id} not found")
+                    return
+                
+                # Check if already logged
+                existing_log = AttendanceLog.query.filter_by(
+                    user_id=user.id,
+                    meeting_hour_id=meeting_id
+                ).first()
+                
+                if existing_log:
+                    # Send error message via DM
+                    self._send_direct_message(user_id, "❌ Attendance already logged for this meeting.")
+                    return
+                
+                # Parse times
+                try:
+                    meeting_date = meeting.start_time.date()
+                    start_datetime = datetime.combine(meeting_date, datetime.strptime(start_time, '%H:%M').time())
+                    end_datetime = datetime.combine(meeting_date, datetime.strptime(end_time, '%H:%M').time())
+                    
+                    # Handle case where end time is next day
+                    if end_datetime <= start_datetime:
+                        end_datetime += timedelta(days=1)
+                    
+                    # Calculate hours attended
+                    hours_attended = (end_datetime - start_datetime).total_seconds() / 3600
+                    
+                    if hours_attended <= 0:
+                        self._send_direct_message(user_id, "❌ End time must be after start time.")
+                        return
+                    
+                    # Calculate total meeting hours
+                    total_meeting_hours = (meeting.end_time - meeting.start_time).total_seconds() / 3600
+                    
+                    # For 0-hour meetings (bonus meetings), allow any amount of attendance
+                    if total_meeting_hours == 0:
+                        is_partial = False
+                        partial_hours_value = hours_attended
+                    else:
+                        # For regular meetings, validate against meeting length
+                        if hours_attended > total_meeting_hours:
+                            self._send_direct_message(user_id, f"❌ Hours attended ({hours_attended:.2f}) cannot exceed total meeting hours ({total_meeting_hours:.2f})")
+                            return
+                        
+                        # Determine if this is partial attendance
+                        is_partial = hours_attended < total_meeting_hours
+                        partial_hours_value = hours_attended if is_partial else None
+                    
+                    # Create attendance log
+                    attendance_log = AttendanceLog(
+                        user_id=user.id,
+                        meeting_hour_id=meeting_id,
+                        notes=notes,
+                        is_partial=is_partial,
+                        partial_hours=partial_hours_value,
+                        attendance_start_time=start_datetime,
+                        attendance_end_time=end_datetime
+                    )
+                    
+                    db.session.add(attendance_log)
+                    db.session.commit()
+                    
+                    # Send success message
+                    self._send_direct_message(user_id, f"✅ Attendance logged successfully for: {meeting.description}")
+                    
+                    # Refresh the App Home
+                    self.update_app_home(user_id)
+                    
+                except ValueError as e:
+                    self._send_direct_message(user_id, f"❌ Invalid time format: {str(e)}")
+                
+            except Exception as e:
+                logger.error(f"Error handling attendance modal submission: {e}")
+                self._send_direct_message(user_id, "❌ An error occurred while logging attendance.")
+    
+    def handle_edit_attendance_modal_submission(self, user_id, meeting_id, start_time, end_time, notes):
+        """Handle attendance editing modal submission"""
+        with self.app.app_context():
+            try:
+                user = User.query.filter_by(slack_user_id=user_id).first()
+                meeting = MeetingHour.query.get(meeting_id)
+                
+                if not user or not meeting:
+                    logger.error(f"User {user_id} or meeting {meeting_id} not found")
+                    return
+                
+                # Get existing attendance log
+                attendance_log = AttendanceLog.query.filter_by(
+                    user_id=user.id,
+                    meeting_hour_id=meeting_id
+                ).first()
+                
+                if not attendance_log:
+                    self._send_direct_message(user_id, "❌ No attendance record found for this meeting.")
+                    return
+                
+                # Parse times
+                try:
+                    meeting_date = meeting.start_time.date()
+                    start_datetime = datetime.combine(meeting_date, datetime.strptime(start_time, '%H:%M').time())
+                    end_datetime = datetime.combine(meeting_date, datetime.strptime(end_time, '%H:%M').time())
+                    
+                    # Handle case where end time is next day
+                    if end_datetime <= start_datetime:
+                        end_datetime += timedelta(days=1)
+                    
+                    # Calculate hours attended
+                    hours_attended = (end_datetime - start_datetime).total_seconds() / 3600
+                    
+                    if hours_attended <= 0:
+                        self._send_direct_message(user_id, "❌ End time must be after start time.")
+                        return
+                    
+                    # Calculate total meeting hours
+                    total_meeting_hours = (meeting.end_time - meeting.start_time).total_seconds() / 3600
+                    
+                    # For 0-hour meetings (bonus meetings), allow any amount of attendance
+                    if total_meeting_hours == 0:
+                        is_partial = False
+                        partial_hours_value = hours_attended
+                    else:
+                        # For regular meetings, validate against meeting length
+                        if hours_attended > total_meeting_hours:
+                            self._send_direct_message(user_id, f"❌ Hours attended ({hours_attended:.2f}) cannot exceed total meeting hours ({total_meeting_hours:.2f})")
+                            return
+                        
+                        # Determine if this is partial attendance
+                        is_partial = hours_attended < total_meeting_hours
+                        partial_hours_value = hours_attended if is_partial else None
+                    
+                    # Update attendance log
+                    attendance_log.partial_hours = partial_hours_value
+                    attendance_log.is_partial = is_partial
+                    attendance_log.notes = notes
+                    attendance_log.attendance_start_time = start_datetime
+                    attendance_log.attendance_end_time = end_datetime
+                    
+                    db.session.commit()
+                    
+                    # Send success message
+                    self._send_direct_message(user_id, f"✅ Attendance updated successfully for: {meeting.description}")
+                    
+                    # Refresh the App Home
+                    self.update_app_home(user_id)
+                    
+                except ValueError as e:
+                    self._send_direct_message(user_id, f"❌ Invalid time format: {str(e)}")
+                
+            except Exception as e:
+                logger.error(f"Error handling edit attendance modal submission: {e}")
+                self._send_direct_message(user_id, "❌ An error occurred while updating attendance.")
+    
+    def handle_add_meeting_modal_submission(self, user_id, meeting_type, date, start_time, end_time, description):
+        """Handle add meeting modal submission"""
+        with self.app.app_context():
+            try:
+                user = User.query.filter_by(slack_user_id=user_id).first()
+                
+                if not user or not user.is_admin:
+                    logger.error(f"User {user_id} is not authorized to add meetings")
+                    return
+                
+                # Parse date and times
+                try:
+                    start_datetime = datetime.strptime(f"{date} {start_time}", "%Y-%m-%d %H:%M")
+                    end_datetime = datetime.strptime(f"{date} {end_time}", "%Y-%m-%d %H:%M")
+                    
+                    if end_datetime <= start_datetime:
+                        self._send_direct_message(user_id, "❌ End time must be after start time.")
+                        return
+                    
+                    # Create meeting
+                    meeting = MeetingHour(
+                        start_time=start_datetime,
+                        end_time=end_datetime,
+                        description=description,
+                        meeting_type=meeting_type,
+                        created_by=user.id
+                    )
+                    
+                    db.session.add(meeting)
+                    db.session.commit()
+                    
+                    # Send success message
+                    meeting_type_name = "Regular meeting" if meeting_type == 'regular' else "Outreach meeting"
+                    duration = (end_datetime - start_datetime).total_seconds() / 3600
+                    self._send_direct_message(user_id, f"✅ {meeting_type_name} created successfully: {description} on {date} from {start_time} to {end_time} ({duration:.1f}h)")
+                    
+                    # Refresh the App Home
+                    self.update_app_home(user_id)
+                    
+                except ValueError as e:
+                    self._send_direct_message(user_id, f"❌ Invalid date/time format: {str(e)}")
+                
+            except Exception as e:
+                logger.error(f"Error handling add meeting modal submission: {e}")
+                self._send_direct_message(user_id, "❌ An error occurred while creating the meeting.")
+    
+    def _send_direct_message(self, user_id, text):
+        """Send a direct message to a user"""
+        try:
+            # Open a conversation with the user
+            response = self.client.conversations_open(users=[user_id])
+            channel_id = response['channel']['id']
+            
+            # Send the message
+            self.client.chat_postMessage(
+                channel=channel_id,
+                text=text
+            )
+        except SlackApiError as e:
+            logger.error(f"Error sending direct message to {user_id}: {e.response['error']}")

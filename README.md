@@ -4,10 +4,12 @@ A Python-based web application for tracking team attendance with Slack bot integ
 
 ## Features
 
-- **Slack Integration**: Primary interface through Slack bot commands
+- **Slack Integration**: Primary interface through Slack bot commands and interactive App Home
+- **Interactive App Home**: Intuitive dashboard showing recent meetings with one-click attendance logging
 - **Admin Management**: Create meeting hours, reporting periods, and excuse team members
 - **Time-Based Attendance Logging**: Log precise start and end times for accurate tracking
 - **Smart Time Matching**: Automatically finds meetings/events based on date and time overlap
+- **Modal-Based Forms**: User-friendly forms for logging and editing attendance directly in Slack
 - **Outreach Tracking**: Separate tracking for outreach events with hour-based requirements
 - **Detailed Reporting**: Web interface with comprehensive attendance reports and charts
 - **Attendance Visualization**: Charts showing member presence over time during meetings
@@ -80,6 +82,7 @@ Add the following OAuth scopes:
 - `chat:write`
 - `commands`
 - `users:read`
+- `im:write` (for App Home direct message confirmations)
 
 ### 3. Create Slash Commands
 
@@ -109,13 +112,42 @@ Add these slash commands to your Slack app:
    - `https://your-domain.com/auth/google/callback` (production)
 7. Copy the Client ID and Client Secret to your `.env` file
 
-### 5. Event Subscriptions
+### 5. App Home Setup
+
+1. Enable App Home in your Slack app settings:
+   - Go to "App Home" in your app configuration
+   - Enable the "Home Tab" feature
+   - Set a display name and description for your app
+
+### 6. Event Subscriptions
 
 Enable event subscriptions and add your endpoint:
 - Request URL: `https://your-domain.com/slack/events`
-- Subscribe to: `app_mention`, `message.channels`
+- Subscribe to: `app_mention`, `message.channels`, `app_home_opened`
+
+### 7. Interactivity & Shortcuts
+
+Enable interactivity for buttons and modals:
+- Request URL: `https://your-domain.com/slack/interactive`
 
 ## Usage
+
+### Slack App Home (Recommended)
+
+The easiest way to log attendance is through the Slack App Home:
+
+1. **Open App Home**: Click on the attendance bot in your Slack sidebar or search for the app
+2. **View Recent Meetings**: See the 5 most recent regular meetings and outreach events
+3. **Log Attendance**: Click "Log Attendance" for meetings you attended
+4. **Edit Records**: Click "Edit Attendance" to modify existing records
+5. **Admin Features**: Admins can add new meetings directly from the App Home
+
+#### App Home Features:
+- **One-Click Access**: Easy buttons for logging and editing attendance
+- **Visual Status**: Clear indicators showing which meetings have logged attendance
+- **Interactive Forms**: User-friendly modals for entering start/end times and notes
+- **Real-Time Updates**: App Home refreshes automatically after any changes
+- **Admin Controls**: Streamlined meeting creation for administrators
 
 ### Running the Application
 

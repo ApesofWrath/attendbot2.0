@@ -50,6 +50,10 @@ def slack_events():
             # Handle slash commands
             elif event.get('type') == 'slash_command':
                 handle_slash_command(event)
+            
+            # Handle App Home opened
+            elif event.get('type') == 'app_home_opened':
+                handle_app_home_opened(event)
         
         return jsonify({'status': 'ok'}), 200
         
@@ -163,8 +167,138 @@ def slack_interactive():
 
 def handle_block_actions(payload):
     """Handle button clicks and other block actions"""
-    pass
+    try:
+        user_id = payload['user']['id']
+        actions = payload['actions']
+        
+        for action in actions:
+            action_id = action.get('action_id')
+            value = action.get('value')
+            
+            # Handle different button actions
+            if action_id.startswith('log_attendance_'):
+                meeting_id = action_id.replace('log_attendance_', '')
+                bot.open_log_attendance_modal(user_id, meeting_id, payload['trigger_id'])
+            
+            elif action_id.startswith('edit_attendance_'):
+                meeting_id = action_id.replace('edit_attendance_', '')
+                bot.open_edit_attendance_modal(user_id, meeting_id, payload['trigger_id'])
+            
+            elif action_id == 'add_regular_meeting':
+                bot.open_add_meeting_modal(user_id, 'regular', payload['trigger_id'])
+            
+            elif action_id == 'add_outreach_meeting':
+                bot.open_add_meeting_modal(user_id, 'outreach', payload['trigger_id'])
+            
+            elif action_id == 'refresh_app_home':
+                bot.update_app_home(user_id)
+                
+    except Exception as e:
+        logger.error(f"Error handling block actions: {e}")
 
 def handle_view_submission(payload):
     """Handle modal form submissions"""
-    pass
+    try:
+        user_id = payload['user']['id']
+        view = payload['view']
+        
+        # Handle different view callbacks
+        callback_id = view.get('callback_id')
+        
+        if callback_id == 'log_attendance_modal':
+            handle_log_attendance_modal(payload)
+        elif callback_id == 'edit_attendance_modal':
+            handle_edit_attendance_modal(payload)
+        elif callback_id == 'add_meeting_modal':
+            handle_add_meeting_modal(payload)
+        elif callback_id == 'add_outreach_modal':
+            handle_add_outreach_modal(payload)
+            
+    except Exception as e:
+        logger.error(f"Error handling view submission: {e}")
+
+def handle_app_home_opened(event):
+    """Handle when user opens the App Home tab"""
+    try:
+        user_id = event.get('user')
+        channel_id = event.get('channel')  # This is the App Home tab ID
+        
+        logger.info(f"App Home opened by user {user_id}")
+        
+        # Update the App Home view
+        bot.update_app_home(user_id)
+        
+    except Exception as e:
+        logger.error(f"Error handling app home opened: {e}")
+
+def handle_log_attendance_modal(payload):
+    """Handle attendance logging modal submission"""
+    try:
+        user_id = payload['user']['id']
+        values = payload['view']['state']['values']
+        
+        # Extract form data
+        meeting_id = payload['view']['private_metadata']
+        start_time = values.get('start_time_block', {}).get('start_time_input', {}).get('value', '')
+        end_time = values.get('end_time_block', {}).get('end_time_input', {}).get('value', '')
+        notes = values.get('notes_block', {}).get('notes_input', {}).get('value', '')
+        
+        # Process attendance logging
+        bot.handle_attendance_modal_submission(user_id, meeting_id, start_time, end_time, notes)
+        
+    except Exception as e:
+        logger.error(f"Error handling log attendance modal: {e}")
+
+def handle_edit_attendance_modal(payload):
+    """Handle attendance editing modal submission"""
+    try:
+        user_id = payload['user']['id']
+        values = payload['view']['state']['values']
+        
+        # Extract form data
+        meeting_id = payload['view']['private_metadata']
+        start_time = values.get('start_time_block', {}).get('start_time_input', {}).get('value', '')
+        end_time = values.get('end_time_block', {}).get('end_time_input', {}).get('value', '')
+        notes = values.get('notes_block', {}).get('notes_input', {}).get('value', '')
+        
+        # Process attendance editing
+        bot.handle_edit_attendance_modal_submission(user_id, meeting_id, start_time, end_time, notes)
+        
+    except Exception as e:
+        logger.error(f"Error handling edit attendance modal: {e}")
+
+def handle_add_meeting_modal(payload):
+    """Handle add meeting modal submission"""
+    try:
+        user_id = payload['user']['id']
+        values = payload['view']['state']['values']
+        
+        # Extract form data
+        date = values.get('date_block', {}).get('date_input', {}).get('selected_date', '')
+        start_time = values.get('start_time_block', {}).get('start_time_input', {}).get('value', '')
+        end_time = values.get('end_time_block', {}).get('end_time_input', {}).get('value', '')
+        description = values.get('description_block', {}).get('description_input', {}).get('value', '')
+        
+        # Process meeting creation
+        bot.handle_add_meeting_modal_submission(user_id, 'regular', date, start_time, end_time, description)
+        
+    except Exception as e:
+        logger.error(f"Error handling add meeting modal: {e}")
+
+def handle_add_outreach_modal(payload):
+    """Handle add outreach modal submission"""
+    try:
+        user_id = payload['user']['id']
+        values = payload['view']['state']['values']
+        
+        # Extract form data
+        date = values.get('date_block', {}).get('date_input', {}).get('selected_date', '')
+        start_time = values.get('start_time_block', {}).get('start_time_input', {}).get('value', '')
+        end_time = values.get('end_time_block', {}).get('end_time_input', {}).get('value', '')
+        description = values.get('description_block', {}).get('description_input', {}).get('value', '')
+        
+        # Process outreach creation
+        bot.handle_add_meeting_modal_submission(user_id, 'outreach', date, start_time, end_time, description)
+        
+    except Exception as e:
+        logger.error(f"Error handling add outreach modal: {e}")
