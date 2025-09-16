@@ -236,7 +236,7 @@ def dashboard():
             attendance_log = attendance_logs.get(meeting.id)
             excuse = excuses.get(meeting.id)
             
-            # Calculate hours attended
+            # Calculate hours attended and get attendance times
             if attendance_log:
                 if attendance_log.partial_hours is not None:
                     hours_attended = attendance_log.partial_hours
@@ -245,16 +245,29 @@ def dashboard():
                 is_partial = attendance_log.is_partial
                 notes = attendance_log.notes
                 status = 'partial' if is_partial else 'attended'
+                
+                # Get attendance times, fallback to meeting times if not set
+                if attendance_log.attendance_start_time and attendance_log.attendance_end_time:
+                    attendance_start_time = attendance_log.attendance_start_time
+                    attendance_end_time = attendance_log.attendance_end_time
+                else:
+                    # For legacy records, use meeting times
+                    attendance_start_time = meeting.start_time
+                    attendance_end_time = meeting.end_time
             elif excuse:
                 hours_attended = 0
                 is_partial = False
                 notes = excuse.reason
                 status = 'excused'
+                attendance_start_time = None
+                attendance_end_time = None
             else:
                 hours_attended = 0
                 is_partial = False
                 notes = None
                 status = 'absent'
+                attendance_start_time = None
+                attendance_end_time = None
             
             total_hours = (meeting.end_time - meeting.start_time).total_seconds() / 3600
             attendance_percentage = (hours_attended / total_hours * 100) if total_hours > 0 else 0
@@ -266,7 +279,9 @@ def dashboard():
                 'attendance_percentage': round(attendance_percentage, 1),
                 'status': status,
                 'is_partial': is_partial,
-                'notes': notes
+                'notes': notes,
+                'attendance_start_time': attendance_start_time,
+                'attendance_end_time': attendance_end_time
             })
     
     return render_template('dashboard.html', 
@@ -938,10 +953,11 @@ def log_attendance():
 @app.route('/api/edit_attendance', methods=['POST'])
 @login_required
 def edit_attendance():
-    """Edit existing attendance log"""
+    """Edit existing attendance log using start and end times"""
     data = request.get_json()
     meeting_id = data.get('meeting_id')
-    hours_attended = data.get('hours_attended')
+    start_time_str = data.get('start_time')
+    end_time_str = data.get('end_time')
     notes = data.get('notes', '')
     
     # Check if meeting hour exists
@@ -958,14 +974,25 @@ def edit_attendance():
     if not attendance_log:
         return jsonify({'error': 'No attendance record found for this meeting'}), 404
     
-    # Validate hours_attended
-    if hours_attended is None:
-        return jsonify({'error': 'Hours attended is required'}), 400
+    # Validate start and end times
+    if not start_time_str or not end_time_str:
+        return jsonify({'error': 'Start time and end time are required'}), 400
     
     try:
-        hours_attended = float(hours_attended)
-        if hours_attended < 0:
-            return jsonify({'error': 'Hours attended must be 0 or greater'}), 400
+        # Parse the time strings and combine with meeting date
+        meeting_date = meeting_hour.start_time.date()
+        start_time = datetime.combine(meeting_date, datetime.strptime(start_time_str, '%H:%M').time())
+        end_time = datetime.combine(meeting_date, datetime.strptime(end_time_str, '%H:%M').time())
+        
+        # Handle case where end time is next day (e.g., 23:00 to 01:00)
+        if end_time <= start_time:
+            end_time += timedelta(days=1)
+        
+        # Calculate hours attended
+        hours_attended = (end_time - start_time).total_seconds() / 3600
+        
+        if hours_attended <= 0:
+            return jsonify({'error': 'End time must be after start time'}), 400
         
         # Calculate total meeting hours
         total_meeting_hours = (meeting_hour.end_time - meeting_hour.start_time).total_seconds() / 3600
@@ -978,37 +1005,21 @@ def edit_attendance():
         else:
             # For regular meetings, validate against meeting length
             if hours_attended > total_meeting_hours:
-                return jsonify({'error': f'Hours attended ({hours_attended}) cannot exceed total meeting hours ({total_meeting_hours:.2f})'}), 400
+                return jsonify({'error': f'Hours attended ({hours_attended:.2f}) cannot exceed total meeting hours ({total_meeting_hours:.2f})'}), 400
             
             # Determine if this is partial attendance
             is_partial = hours_attended < total_meeting_hours
             partial_hours_value = hours_attended if is_partial else None
             
-    except (ValueError, TypeError):
-        return jsonify({'error': 'Hours attended must be a valid number'}), 400
+    except (ValueError, TypeError) as e:
+        return jsonify({'error': f'Invalid time format: {str(e)}'}), 400
     
     # Update attendance log
     attendance_log.partial_hours = partial_hours_value
     attendance_log.is_partial = is_partial
     attendance_log.notes = notes
-    
-    # Update attendance times if needed
-    if total_meeting_hours == 0:
-        # For bonus meetings, keep the original attendance times or set them to meeting time
-        if not attendance_log.attendance_start_time:
-            attendance_log.attendance_start_time = meeting_hour.start_time
-        if not attendance_log.attendance_end_time:
-            attendance_log.attendance_end_time = meeting_hour.start_time + timedelta(hours=hours_attended)
-    else:
-        # For regular meetings, calculate attendance times based on hours attended
-        if hours_attended == total_meeting_hours:
-            # Full attendance
-            attendance_log.attendance_start_time = meeting_hour.start_time
-            attendance_log.attendance_end_time = meeting_hour.end_time
-        else:
-            # Partial attendance - assume attendance from the start of the meeting
-            attendance_log.attendance_start_time = meeting_hour.start_time
-            attendance_log.attendance_end_time = meeting_hour.start_time + timedelta(hours=hours_attended)
+    attendance_log.attendance_start_time = start_time
+    attendance_log.attendance_end_time = end_time
     
     db.session.commit()
     

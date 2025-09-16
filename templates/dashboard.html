@@ -208,7 +208,7 @@
                                             </td>
                                             <td>
                                                 {% if detail.status == 'attended' or detail.status == 'partial' %}
-                                                    <button class="btn btn-sm btn-outline-primary" onclick="editAttendance({{ detail.meeting.id }}, {{ detail.hours_attended }}, '{{ detail.notes or '' }}', '{{ detail.meeting.start_time.strftime('%Y-%m-%d') }}', '{{ detail.meeting.start_time.strftime('%H:%M') }}', '{{ detail.meeting.end_time.strftime('%H:%M') }}')">
+                                                    <button class="btn btn-sm btn-outline-primary" onclick="editAttendance({{ detail.meeting.id }}, '{{ detail.notes or '' }}', '{{ detail.meeting.start_time.strftime('%Y-%m-%d') }}', '{{ detail.meeting.start_time.strftime('%H:%M') }}', '{{ detail.meeting.end_time.strftime('%H:%M') }}', '{{ detail.attendance_start_time.strftime('%H:%M') if detail.attendance_start_time else detail.meeting.start_time.strftime('%H:%M') }}', '{{ detail.attendance_end_time.strftime('%H:%M') if detail.attendance_end_time else detail.meeting.end_time.strftime('%H:%M') }}')">
                                                         <i class="fas fa-edit"></i> Edit
                                                     </button>
                                                 {% else %}
@@ -281,7 +281,7 @@
                                             </td>
                                             <td>
                                                 {% if detail.status == 'attended' or detail.status == 'partial' %}
-                                                    <button class="btn btn-sm btn-outline-primary" onclick="editAttendance({{ detail.meeting.id }}, {{ detail.hours_attended }}, '{{ detail.notes or '' }}', '{{ detail.meeting.start_time.strftime('%Y-%m-%d') }}', '{{ detail.meeting.start_time.strftime('%H:%M') }}', '{{ detail.meeting.end_time.strftime('%H:%M') }}')">
+                                                    <button class="btn btn-sm btn-outline-primary" onclick="editAttendance({{ detail.meeting.id }}, '{{ detail.notes or '' }}', '{{ detail.meeting.start_time.strftime('%Y-%m-%d') }}', '{{ detail.meeting.start_time.strftime('%H:%M') }}', '{{ detail.meeting.end_time.strftime('%H:%M') }}', '{{ detail.attendance_start_time.strftime('%H:%M') if detail.attendance_start_time else detail.meeting.start_time.strftime('%H:%M') }}', '{{ detail.attendance_end_time.strftime('%H:%M') if detail.attendance_end_time else detail.meeting.end_time.strftime('%H:%M') }}')">
                                                         <i class="fas fa-edit"></i> Edit
                                                     </button>
                                                 {% else %}
@@ -358,9 +358,19 @@
                         <input type="text" class="form-control" id="editMeetingTime" readonly>
                     </div>
                     <div class="mb-3">
-                        <label for="editHoursAttended" class="form-label">Hours Attended</label>
-                        <input type="number" class="form-control" id="editHoursAttended" name="hours_attended" step="0.1" min="0" required>
-                        <div class="form-text">Enter the number of hours you actually attended (e.g., 1.5 for 1 hour 30 minutes)</div>
+                        <label for="editStartTime" class="form-label">Start Time</label>
+                        <input type="time" class="form-control" id="editStartTime" name="start_time" required>
+                        <div class="form-text">When you actually started attending</div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="editEndTime" class="form-label">End Time</label>
+                        <input type="time" class="form-control" id="editEndTime" name="end_time" required>
+                        <div class="form-text">When you actually stopped attending</div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="editCalculatedHours" class="form-label">Calculated Hours</label>
+                        <input type="text" class="form-control" id="editCalculatedHours" readonly>
+                        <div class="form-text">Hours will be automatically calculated from start and end times</div>
                     </div>
                     <div class="mb-3">
                         <label for="editNotes" class="form-label">Notes (Optional)</label>
@@ -377,26 +387,66 @@
 </div>
 
 <script>
-function editAttendance(meetingId, currentHours, currentNotes, meetingDate, startTime, endTime) {
+function editAttendance(meetingId, currentNotes, meetingDate, meetingStartTime, meetingEndTime, attendanceStartTime, attendanceEndTime) {
     // Populate the modal with current values
     document.getElementById('editMeetingId').value = meetingId;
     document.getElementById('editMeetingDate').value = meetingDate;
-    document.getElementById('editMeetingTime').value = startTime + ' - ' + endTime;
-    document.getElementById('editHoursAttended').value = currentHours;
+    document.getElementById('editMeetingTime').value = meetingStartTime + ' - ' + meetingEndTime;
+    
+    // Set current attendance times (use actual attendance times if available, otherwise meeting times)
+    document.getElementById('editStartTime').value = attendanceStartTime;
+    document.getElementById('editEndTime').value = attendanceEndTime;
     document.getElementById('editNotes').value = currentNotes;
+    
+    // Calculate and display initial hours
+    calculateHours();
+    
+    // Add event listeners for automatic calculation
+    document.getElementById('editStartTime').addEventListener('change', calculateHours);
+    document.getElementById('editEndTime').addEventListener('change', calculateHours);
     
     // Show the modal
     var modal = new bootstrap.Modal(document.getElementById('editAttendanceModal'));
     modal.show();
 }
 
+function calculateHours() {
+    const startTime = document.getElementById('editStartTime').value;
+    const endTime = document.getElementById('editEndTime').value;
+    
+    if (startTime && endTime) {
+        const start = new Date('2000-01-01T' + startTime);
+        const end = new Date('2000-01-01T' + endTime);
+        
+        if (end > start) {
+            const diffMs = end - start;
+            const diffHours = diffMs / (1000 * 60 * 60);
+            document.getElementById('editCalculatedHours').value = diffHours.toFixed(2) + ' hours';
+        } else {
+            document.getElementById('editCalculatedHours').value = 'Invalid time range';
+        }
+    } else {
+        document.getElementById('editCalculatedHours').value = '';
+    }
+}
+
 function saveAttendanceEdit() {
     const meetingId = document.getElementById('editMeetingId').value;
-    const hoursAttended = parseFloat(document.getElementById('editHoursAttended').value);
+    const startTime = document.getElementById('editStartTime').value;
+    const endTime = document.getElementById('editEndTime').value;
     const notes = document.getElementById('editNotes').value;
     
-    if (isNaN(hoursAttended) || hoursAttended < 0) {
-        alert('Please enter a valid number of hours (0 or greater)');
+    if (!startTime || !endTime) {
+        alert('Please enter both start and end times');
+        return;
+    }
+    
+    // Validate time range
+    const start = new Date('2000-01-01T' + startTime);
+    const end = new Date('2000-01-01T' + endTime);
+    
+    if (end <= start) {
+        alert('End time must be after start time');
         return;
     }
     
@@ -414,7 +464,8 @@ function saveAttendanceEdit() {
         },
         body: JSON.stringify({
             meeting_id: meetingId,
-            hours_attended: hoursAttended,
+            start_time: startTime,
+            end_time: endTime,
             notes: notes
         })
     })
