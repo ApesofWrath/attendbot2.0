@@ -172,19 +172,27 @@ def slack_interactive():
         
         # Handle different interaction types
         if payload['type'] == 'block_actions':
+            logger.info("Processing block actions")
             handle_block_actions(payload)
+            # For block actions, return empty response (200 OK)
+            logger.info("Block actions processed successfully")
+            return '', 200
         elif payload['type'] == 'view_submission':
+            logger.info("Processing view submission")
             handle_view_submission(payload)
+            # For view submissions, return empty response (200 OK)
+            logger.info("View submission processed successfully")
+            return '', 200
         else:
             logger.warning(f"Unknown payload type: {payload['type']}")
-        
-        return jsonify({'response_type': 'ephemeral'})
+            return '', 200
         
     except Exception as e:
         logger.error(f"Error in slack_interactive: {e}")
         import traceback
         traceback.print_exc()
-        return jsonify({'error': 'Internal server error'}), 500
+        # Return empty response even on error to prevent Slack retries
+        return '', 200
 
 @app.route('/slack/test-interactive', methods=['POST'])
 def test_interactive():
