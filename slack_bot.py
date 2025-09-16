@@ -94,6 +94,8 @@ class AttendanceSlackBot:
                 return self._handle_my_attendance(user, channel_id, user_id)
             elif command == "/request_excuse":
                 return self._handle_request_excuse(user, channel_id, user_id, text)
+            elif command == "/edit_attendance":
+                return self._handle_edit_attendance(user, channel_id, user_id, text)
             elif command == "/help":
                 return self._handle_help(user, channel_id, user_id)
             else:
@@ -797,6 +799,127 @@ class AttendanceSlackBot:
         except Exception as e:
             return self._send_private_response(channel_id, user_id, f"❌ Error requesting excuse: {str(e)}")
     
+    def _handle_edit_attendance(self, user, channel_id, user_id, text):
+        """Handle editing existing attendance using date and time range matching"""
+        try:
+            parts = text.strip().split()
+            if len(parts) < 3:
+                return self._send_private_response(channel_id, user_id, "❌ Format: `/edit_attendance YYYY-MM-DD HH:MM-HH:MM [notes]`")
+            
+            # Parse date and time range
+            meeting_date_str = parts[0]
+            time_str = parts[1]
+            notes = " ".join(parts[2:]) if len(parts) > 2 else ""
+            
+            # Parse date
+            try:
+                meeting_date = datetime.strptime(meeting_date_str, "%Y-%m-%d")
+            except ValueError:
+                return self._send_private_response(channel_id, user_id, "❌ Invalid date format. Use YYYY-MM-DD (e.g., 2024-01-15)")
+            
+            # Parse time range
+            try:
+                start_time_str, end_time_str = time_str.split("-")
+                start_time = datetime.strptime(f"{meeting_date_str} {start_time_str}", "%Y-%m-%d %H:%M")
+                end_time = datetime.strptime(f"{meeting_date_str} {end_time_str}", "%Y-%m-%d %H:%M")
+                
+                if end_time <= start_time:
+                    return self._send_private_response(channel_id, user_id, "❌ End time must be after start time.")
+                    
+            except ValueError:
+                return self._send_private_response(channel_id, user_id, "❌ Invalid time format. Use HH:MM-HH:MM (e.g., 14:00-15:30).")
+            
+            # Find meetings that overlap with the specified time range
+            meetings = MeetingHour.query.filter(
+                db.func.date(MeetingHour.start_time) == meeting_date.date(),
+                MeetingHour.start_time <= end_time,
+                MeetingHour.end_time >= start_time
+            ).all()
+            
+            if not meetings:
+                return self._send_private_response(channel_id, user_id, f"❌ No meetings found on {meeting_date_str} that overlap with {start_time_str}-{end_time_str}. Please check the time or contact an admin.")
+            
+            # If multiple meetings overlap, find the best match (most overlap)
+            best_meeting = None
+            max_overlap = 0
+            
+            for meeting in meetings:
+                # Calculate overlap duration
+                overlap_start = max(meeting.start_time, start_time)
+                overlap_end = min(meeting.end_time, end_time)
+                overlap_duration = (overlap_end - overlap_start).total_seconds() / 3600
+                
+                # For 0-length meetings (start_time == end_time), check if the meeting time falls within the logged time range
+                if meeting.start_time == meeting.end_time:
+                    # If it's a 0-length meeting, consider it a match if the meeting time is within the logged time range
+                    if meeting.start_time >= start_time and meeting.start_time <= end_time:
+                        overlap_duration = (end_time - start_time).total_seconds() / 3600  # Use full logged duration
+                
+                if overlap_duration > max_overlap:
+                    max_overlap = overlap_duration
+                    best_meeting = meeting
+            
+            if not best_meeting:
+                return self._send_private_response(channel_id, user_id, f"❌ No suitable meeting found for the time range {start_time_str}-{end_time_str}.")
+            
+            # Check if user has an attendance log for this meeting
+            attendance_log = AttendanceLog.query.filter_by(
+                user_id=user.id,
+                meeting_hour_id=best_meeting.id
+            ).first()
+            
+            if not attendance_log:
+                return self._send_private_response(channel_id, user_id, f"❌ No attendance record found for {best_meeting.description} on {meeting_date_str}. Use `/log_attendance` to log attendance first.")
+            
+            # Calculate actual hours attended based on the time range
+            # For 0-length meetings, use the full logged time range
+            if best_meeting.start_time == best_meeting.end_time:
+                actual_start = start_time
+                actual_end = end_time
+                hours_attended = (actual_end - actual_start).total_seconds() / 3600
+                meeting_duration = 0  # 0-length meeting
+                is_partial = False  # Not considered partial for 0-length meetings
+            else:
+                # For regular meetings, calculate based on overlap
+                actual_start = max(best_meeting.start_time, start_time)
+                actual_end = min(best_meeting.end_time, end_time)
+                hours_attended = (actual_end - actual_start).total_seconds() / 3600
+                meeting_duration = (best_meeting.end_time - best_meeting.start_time).total_seconds() / 3600
+                
+                # Only consider it partial if the logged time is less than the meeting duration
+                # Allow logging more hours than meeting duration (extended attendance)
+                is_partial = hours_attended < meeting_duration
+            
+            # Validate hours_attended
+            if hours_attended <= 0:
+                return self._send_private_response(channel_id, user_id, "❌ The time range you specified doesn't overlap with the meeting time.")
+            
+            # For regular meetings, validate against meeting length
+            if meeting_duration > 0 and hours_attended > meeting_duration:
+                return self._send_private_response(channel_id, user_id, f"❌ Hours attended ({hours_attended:.1f}) cannot exceed total meeting hours ({meeting_duration:.1f})")
+            
+            # Update attendance log
+            attendance_log.partial_hours = hours_attended if is_partial else None
+            attendance_log.is_partial = is_partial
+            attendance_log.notes = notes
+            attendance_log.attendance_start_time = actual_start
+            attendance_log.attendance_end_time = actual_end
+            
+            db.session.commit()
+            
+            # Format response message
+            if best_meeting.start_time == best_meeting.end_time:
+                return self._send_private_response(channel_id, user_id, f"✅ Attendance updated: {hours_attended:.1f}h for {best_meeting.description} on {meeting_date_str} (0-length meeting)")
+            elif is_partial:
+                return self._send_private_response(channel_id, user_id, f"✅ Partial attendance updated: {hours_attended:.1f}h of {meeting_duration:.1f}h for {best_meeting.description} on {meeting_date_str}")
+            elif hours_attended > meeting_duration:
+                return self._send_private_response(channel_id, user_id, f"✅ Extended attendance updated: {hours_attended:.1f}h (meeting was {meeting_duration:.1f}h) for {best_meeting.description} on {meeting_date_str}")
+            else:
+                return self._send_private_response(channel_id, user_id, f"✅ Full attendance updated: {hours_attended:.1f}h for {best_meeting.description} on {meeting_date_str}")
+            
+        except Exception as e:
+            return self._send_private_response(channel_id, user_id, f"❌ Error editing attendance: {str(e)}")
+    
     def _handle_help(self, user, channel_id, user_id):
         """Handle help command"""
         message = "🤖 *Attendance Bot Commands*\n\n"
@@ -823,6 +946,7 @@ class AttendanceSlackBot:
         message += "`/log_attendance YYYY-MM-DD HH:MM-HH:MM [notes]` - Log attendance by time range\n"
         message += "`/log_outreach outreach_id [notes]` - Log full outreach attendance\n"
         message += "`/log_outreach YYYY-MM-DD HH:MM-HH:MM [notes]` - Log outreach by time range\n"
+        message += "`/edit_attendance YYYY-MM-DD HH:MM-HH:MM [notes]` - Edit existing attendance by time range\n"
         message += "`/request_excuse meeting_id reason` - Request excuse for a meeting\n"
         message += "`/request_excuse YYYY-MM-DD reason` - Request excuse by date\n"
         message += "`/my_attendance` - View your attendance and outreach hours\n"

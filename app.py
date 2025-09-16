@@ -935,6 +935,85 @@ def log_attendance():
     
     return jsonify({'message': 'Attendance logged successfully'})
 
+@app.route('/api/edit_attendance', methods=['POST'])
+@login_required
+def edit_attendance():
+    """Edit existing attendance log"""
+    data = request.get_json()
+    meeting_id = data.get('meeting_id')
+    hours_attended = data.get('hours_attended')
+    notes = data.get('notes', '')
+    
+    # Check if meeting hour exists
+    meeting_hour = MeetingHour.query.get(meeting_id)
+    if not meeting_hour:
+        return jsonify({'error': 'Meeting not found'}), 404
+    
+    # Check if user has an attendance log for this meeting
+    attendance_log = AttendanceLog.query.filter_by(
+        user_id=current_user.id,
+        meeting_hour_id=meeting_id
+    ).first()
+    
+    if not attendance_log:
+        return jsonify({'error': 'No attendance record found for this meeting'}), 404
+    
+    # Validate hours_attended
+    if hours_attended is None:
+        return jsonify({'error': 'Hours attended is required'}), 400
+    
+    try:
+        hours_attended = float(hours_attended)
+        if hours_attended < 0:
+            return jsonify({'error': 'Hours attended must be 0 or greater'}), 400
+        
+        # Calculate total meeting hours
+        total_meeting_hours = (meeting_hour.end_time - meeting_hour.start_time).total_seconds() / 3600
+        
+        # For 0-hour meetings (bonus meetings), allow any amount of attendance
+        if total_meeting_hours == 0:
+            # For bonus meetings, allow any amount of attendance
+            is_partial = False
+            partial_hours_value = hours_attended
+        else:
+            # For regular meetings, validate against meeting length
+            if hours_attended > total_meeting_hours:
+                return jsonify({'error': f'Hours attended ({hours_attended}) cannot exceed total meeting hours ({total_meeting_hours:.2f})'}), 400
+            
+            # Determine if this is partial attendance
+            is_partial = hours_attended < total_meeting_hours
+            partial_hours_value = hours_attended if is_partial else None
+            
+    except (ValueError, TypeError):
+        return jsonify({'error': 'Hours attended must be a valid number'}), 400
+    
+    # Update attendance log
+    attendance_log.partial_hours = partial_hours_value
+    attendance_log.is_partial = is_partial
+    attendance_log.notes = notes
+    
+    # Update attendance times if needed
+    if total_meeting_hours == 0:
+        # For bonus meetings, keep the original attendance times or set them to meeting time
+        if not attendance_log.attendance_start_time:
+            attendance_log.attendance_start_time = meeting_hour.start_time
+        if not attendance_log.attendance_end_time:
+            attendance_log.attendance_end_time = meeting_hour.start_time + timedelta(hours=hours_attended)
+    else:
+        # For regular meetings, calculate attendance times based on hours attended
+        if hours_attended == total_meeting_hours:
+            # Full attendance
+            attendance_log.attendance_start_time = meeting_hour.start_time
+            attendance_log.attendance_end_time = meeting_hour.end_time
+        else:
+            # Partial attendance - assume attendance from the start of the meeting
+            attendance_log.attendance_start_time = meeting_hour.start_time
+            attendance_log.attendance_end_time = meeting_hour.start_time + timedelta(hours=hours_attended)
+    
+    db.session.commit()
+    
+    return jsonify({'success': True, 'message': 'Attendance updated successfully'})
+
 # Helper functions
 def get_user_attendance_data(user_id, period_id):
     """Calculate user's attendance data for a given period"""
@@ -1846,4 +1925,4 @@ def import_csv():
 if __name__ == '__main__':
     with app.app_context():
         db.create_all()
-    app.run(debug=True)
+    app.run(debug=True, port=5001)
