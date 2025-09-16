@@ -165,6 +165,7 @@
                                 <thead>
                                     <tr>
                                         <th>Date</th>
+                                        <th>Meeting ID</th>
                                         <th>Meeting</th>
                                         <th>Duration</th>
                                         <th>Attended</th>
@@ -177,6 +178,9 @@
                                     {% for meeting_data in regular_meetings_data %}
                                     <tr>
                                         <td>{{ meeting_data.meeting.start_time.strftime('%Y-%m-%d') }}</td>
+                                        <td>
+                                            <span class="badge bg-primary">{{ meeting_data.meeting.id }}</span>
+                                        </td>
                                         <td>
                                             <strong>{{ meeting_data.meeting.description }}</strong><br>
                                             <small class="text-muted">
@@ -279,6 +283,7 @@
                                 <thead>
                                     <tr>
                                         <th>Date</th>
+                                        <th>Meeting ID</th>
                                         <th>Event</th>
                                         <th>Duration</th>
                                         <th>Attended</th>
@@ -291,6 +296,9 @@
                                     {% for meeting_data in outreach_meetings_data %}
                                     <tr>
                                         <td>{{ meeting_data.meeting.start_time.strftime('%Y-%m-%d') }}</td>
+                                        <td>
+                                            <span class="badge bg-success">{{ meeting_data.meeting.id }}</span>
+                                        </td>
                                         <td>
                                             <strong>{{ meeting_data.meeting.description }}</strong><br>
                                             <small class="text-muted">
