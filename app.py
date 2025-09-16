@@ -214,9 +214,65 @@ def dashboard():
     # Get user's attendance data
     user_attendance = get_user_attendance_data(current_user.id, current_period.id if current_period else None)
     
+    # Get detailed meeting data for the current period
+    meeting_details = []
+    if current_period:
+        # Get all meetings in the current period
+        meetings = MeetingHour.query.filter(
+            MeetingHour.start_time >= current_period.start_date,
+            MeetingHour.start_time <= current_period.end_date
+        ).order_by(MeetingHour.start_time.desc()).all()
+        
+        # Get user's attendance logs for these meetings
+        attendance_logs = {log.meeting_hour_id: log for log in AttendanceLog.query.filter_by(user_id=current_user.id).join(MeetingHour).filter(
+            MeetingHour.start_time >= current_period.start_date,
+            MeetingHour.start_time <= current_period.end_date
+        ).all()}
+        
+        # Get user's excuses for these meetings
+        excuses = {excuse.meeting_hour_id: excuse for excuse in Excuse.query.filter_by(user_id=current_user.id, reporting_period_id=current_period.id).all()}
+        
+        for meeting in meetings:
+            attendance_log = attendance_logs.get(meeting.id)
+            excuse = excuses.get(meeting.id)
+            
+            # Calculate hours attended
+            if attendance_log:
+                if attendance_log.partial_hours is not None:
+                    hours_attended = attendance_log.partial_hours
+                else:
+                    hours_attended = (meeting.end_time - meeting.start_time).total_seconds() / 3600
+                is_partial = attendance_log.is_partial
+                notes = attendance_log.notes
+                status = 'partial' if is_partial else 'attended'
+            elif excuse:
+                hours_attended = 0
+                is_partial = False
+                notes = excuse.reason
+                status = 'excused'
+            else:
+                hours_attended = 0
+                is_partial = False
+                notes = None
+                status = 'absent'
+            
+            total_hours = (meeting.end_time - meeting.start_time).total_seconds() / 3600
+            attendance_percentage = (hours_attended / total_hours * 100) if total_hours > 0 else 0
+            
+            meeting_details.append({
+                'meeting': meeting,
+                'hours_attended': round(hours_attended, 2),
+                'total_hours': round(total_hours, 2),
+                'attendance_percentage': round(attendance_percentage, 1),
+                'status': status,
+                'is_partial': is_partial,
+                'notes': notes
+            })
+    
     return render_template('dashboard.html', 
                          current_period=current_period,
-                         user_attendance=user_attendance)
+                         user_attendance=user_attendance,
+                         meeting_details=meeting_details)
 
 @app.route('/admin')
 @login_required

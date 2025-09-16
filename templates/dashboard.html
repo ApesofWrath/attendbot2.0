@@ -126,6 +126,167 @@
 </div>
 {% endif %}
 
+{% if current_period and meeting_details %}
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="fas fa-calendar-check"></i> Meeting Summary - {{ current_period.name }}</h5>
+                <small class="text-muted">Your attendance at meetings and outreach events in the current period</small>
+            </div>
+            <div class="card-body">
+                <!-- Tab Navigation -->
+                <ul class="nav nav-tabs" id="meetingTabs" role="tablist">
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link active" id="regular-tab" data-bs-toggle="tab" data-bs-target="#regular" type="button" role="tab" aria-controls="regular" aria-selected="true">
+                            <i class="fas fa-users"></i> Regular Meetings
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="outreach-tab" data-bs-toggle="tab" data-bs-target="#outreach" type="button" role="tab" aria-controls="outreach" aria-selected="false">
+                            <i class="fas fa-handshake"></i> Outreach Events
+                        </button>
+                    </li>
+                </ul>
+                
+                <!-- Tab Content -->
+                <div class="tab-content mt-3" id="meetingTabsContent">
+                    <!-- Regular Meetings Tab -->
+                    <div class="tab-pane fade show active" id="regular" role="tabpanel" aria-labelledby="regular-tab">
+                        {% set regular_meetings = meeting_details | selectattr('meeting.meeting_type', 'equalto', 'regular') | list %}
+                        {% if regular_meetings %}
+                            <div class="table-responsive">
+                                <table class="table table-hover">
+                                    <thead>
+                                        <tr>
+                                            <th>Date & Time</th>
+                                            <th>Description</th>
+                                            <th>Duration</th>
+                                            <th>Your Attendance</th>
+                                            <th>Status</th>
+                                            <th>Notes</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for detail in regular_meetings %}
+                                        <tr>
+                                            <td>
+                                                <strong>{{ detail.meeting.start_time.strftime('%b %d, %Y') }}</strong><br>
+                                                <small class="text-muted">{{ detail.meeting.start_time.strftime('%I:%M %p') }} - {{ detail.meeting.end_time.strftime('%I:%M %p') }}</small>
+                                            </td>
+                                            <td>{{ detail.meeting.description or 'No description' }}</td>
+                                            <td>{{ detail.total_hours }}h</td>
+                                            <td>
+                                                {% if detail.status == 'attended' %}
+                                                    <span class="badge bg-success">{{ detail.hours_attended }}h (100%)</span>
+                                                {% elif detail.status == 'partial' %}
+                                                    <span class="badge bg-warning">{{ detail.hours_attended }}h ({{ detail.attendance_percentage }}%)</span>
+                                                {% elif detail.status == 'excused' %}
+                                                    <span class="badge bg-info">Excused</span>
+                                                {% else %}
+                                                    <span class="badge bg-danger">Absent</span>
+                                                {% endif %}
+                                            </td>
+                                            <td>
+                                                {% if detail.status == 'attended' %}
+                                                    <i class="fas fa-check-circle text-success"></i> Attended
+                                                {% elif detail.status == 'partial' %}
+                                                    <i class="fas fa-clock text-warning"></i> Partial
+                                                {% elif detail.status == 'excused' %}
+                                                    <i class="fas fa-user-clock text-info"></i> Excused
+                                                {% else %}
+                                                    <i class="fas fa-times-circle text-danger"></i> Absent
+                                                {% endif %}
+                                            </td>
+                                            <td>
+                                                {% if detail.notes %}
+                                                    <small class="text-muted">{{ detail.notes }}</small>
+                                                {% else %}
+                                                    <span class="text-muted">-</span>
+                                                {% endif %}
+                                            </td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        {% else %}
+                            <div class="text-center text-muted py-4">
+                                <i class="fas fa-calendar-times fa-3x mb-3"></i>
+                                <p>No regular meetings scheduled in the current period.</p>
+                            </div>
+                        {% endif %}
+                    </div>
+                    
+                    <!-- Outreach Events Tab -->
+                    <div class="tab-pane fade" id="outreach" role="tabpanel" aria-labelledby="outreach-tab">
+                        {% set outreach_meetings = meeting_details | selectattr('meeting.meeting_type', 'equalto', 'outreach') | list %}
+                        {% if outreach_meetings %}
+                            <div class="table-responsive">
+                                <table class="table table-hover">
+                                    <thead>
+                                        <tr>
+                                            <th>Date & Time</th>
+                                            <th>Description</th>
+                                            <th>Duration</th>
+                                            <th>Your Attendance</th>
+                                            <th>Status</th>
+                                            <th>Notes</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for detail in outreach_meetings %}
+                                        <tr>
+                                            <td>
+                                                <strong>{{ detail.meeting.start_time.strftime('%b %d, %Y') }}</strong><br>
+                                                <small class="text-muted">{{ detail.meeting.start_time.strftime('%I:%M %p') }} - {{ detail.meeting.end_time.strftime('%I:%M %p') }}</small>
+                                            </td>
+                                            <td>{{ detail.meeting.description or 'No description' }}</td>
+                                            <td>{{ detail.total_hours }}h</td>
+                                            <td>
+                                                {% if detail.status == 'attended' %}
+                                                    <span class="badge bg-success">{{ detail.hours_attended }}h (100%)</span>
+                                                {% elif detail.status == 'partial' %}
+                                                    <span class="badge bg-warning">{{ detail.hours_attended }}h ({{ detail.attendance_percentage }}%)</span>
+                                                {% else %}
+                                                    <span class="badge bg-danger">Not Attended</span>
+                                                {% endif %}
+                                            </td>
+                                            <td>
+                                                {% if detail.status == 'attended' %}
+                                                    <i class="fas fa-check-circle text-success"></i> Attended
+                                                {% elif detail.status == 'partial' %}
+                                                    <i class="fas fa-clock text-warning"></i> Partial
+                                                {% else %}
+                                                    <i class="fas fa-times-circle text-danger"></i> Not Attended
+                                                {% endif %}
+                                            </td>
+                                            <td>
+                                                {% if detail.notes %}
+                                                    <small class="text-muted">{{ detail.notes }}</small>
+                                                {% else %}
+                                                    <span class="text-muted">-</span>
+                                                {% endif %}
+                                            </td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        {% else %}
+                            <div class="text-center text-muted py-4">
+                                <i class="fas fa-handshake fa-3x mb-3"></i>
+                                <p>No outreach events scheduled in the current period.</p>
+                            </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
 <div class="row mt-4">
     <div class="col-12">
         <div class="card">
