@@ -262,6 +262,11 @@ def handle_block_actions(payload):
                 logger.info("Opening add outreach meeting modal")
                 bot.open_add_meeting_modal(user_id, 'outreach', trigger_id)
             
+            elif action_id.startswith('request_excuse_'):
+                meeting_id = action_id.replace('request_excuse_', '')
+                logger.info(f"Opening request excuse modal for meeting {meeting_id}")
+                bot.open_request_excuse_modal(user_id, meeting_id, trigger_id)
+            
             elif action_id == 'refresh_app_home':
                 logger.info("Refreshing app home")
                 bot.update_app_home(user_id)
@@ -287,6 +292,8 @@ def handle_view_submission(payload):
             handle_log_attendance_modal(payload)
         elif callback_id == 'edit_attendance_modal':
             handle_edit_attendance_modal(payload)
+        elif callback_id == 'request_excuse_modal':
+            handle_request_excuse_modal(payload)
         elif callback_id == 'add_meeting_modal':
             handle_add_meeting_modal(payload)
         elif callback_id == 'add_outreach_modal':
@@ -362,6 +369,22 @@ def handle_add_meeting_modal(payload):
         
     except Exception as e:
         logger.error(f"Error handling add meeting modal: {e}")
+
+def handle_request_excuse_modal(payload):
+    """Handle request excuse modal submission"""
+    try:
+        user_id = payload['user']['id']
+        values = payload['view']['state']['values']
+        
+        # Extract form data
+        meeting_id = payload['view']['private_metadata']
+        reason = values.get('reason_block', {}).get('reason_input', {}).get('value', '')
+        
+        # Process excuse request
+        bot.handle_request_excuse_modal_submission(user_id, meeting_id, reason)
+        
+    except Exception as e:
+        logger.error(f"Error handling request excuse modal: {e}")
 
 def handle_add_outreach_modal(payload):
     """Handle add outreach modal submission"""

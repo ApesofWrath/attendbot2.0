@@ -1222,6 +1222,17 @@ class AttendanceSlackBot:
         # Create compact table row using text formatting
         meeting_text = f"`{date_str}`  `{start_time}-{end_time}`  `{attended_text}`  {status_emoji}"
         
+        # Determine button text and action
+        if attendance_log:
+            button_text = "Edit"
+            action_id = f"edit_attendance_{meeting.id}"
+            button_style = "primary"
+        else:
+            # For meetings without attendance, show both Log and Request Excuse buttons
+            button_text = "Log"
+            action_id = f"log_attendance_{meeting.id}"
+            button_style = "primary"
+        
         section_block = {
             "type": "section",
             "text": {
@@ -1232,12 +1243,60 @@ class AttendanceSlackBot:
                 "type": "button",
                 "text": {
                     "type": "plain_text",
-                    "text": "Edit" if attendance_log else "Log"
+                    "text": button_text
                 },
-                "action_id": f"edit_attendance_{meeting.id}" if attendance_log else f"log_attendance_{meeting.id}",
-                "style": "primary"
+                "action_id": action_id,
+                "style": button_style
             }
         }
+        
+        # Add Request Excuse button for meetings without attendance (only for regular meetings)
+        if not attendance_log and meeting.meeting_type == 'regular':
+            # Add a second button for requesting excuse
+            section_block["accessory"] = {
+                "type": "button",
+                "text": {
+                    "type": "plain_text",
+                    "text": "Request Excuse"
+                },
+                "action_id": f"request_excuse_{meeting.id}",
+                "style": "danger"
+            }
+            
+            # Add both buttons using actions block
+            blocks.append({
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": meeting_text
+                }
+            })
+            
+            blocks.append({
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {
+                            "type": "plain_text",
+                            "text": "Log"
+                        },
+                        "action_id": f"log_attendance_{meeting.id}",
+                        "style": "primary"
+                    },
+                    {
+                        "type": "button",
+                        "text": {
+                            "type": "plain_text",
+                            "text": "Request Excuse"
+                        },
+                        "action_id": f"request_excuse_{meeting.id}",
+                        "style": "danger"
+                    }
+                ]
+            })
+            
+            return blocks
         
         blocks.append(section_block)
         
@@ -1818,6 +1877,134 @@ class AttendanceSlackBot:
                 logger.error(f"Error handling add meeting modal submission: {e}")
                 self._send_direct_message(user_id, "❌ An error occurred while creating the meeting.")
     
+    def open_request_excuse_modal(self, user_id, meeting_id, trigger_id):
+        """Open a modal for requesting an excuse"""
+        with self.app.app_context():
+            try:
+                meeting = MeetingHour.query.get(meeting_id)
+                if not meeting:
+                    logger.error(f"Meeting {meeting_id} not found")
+                    return
+                
+                # Check if it's an outreach event (cannot be excused)
+                if meeting.meeting_type == 'outreach':
+                    self._send_direct_message(user_id, "❌ Outreach events cannot be excused. All outreach hours count toward your total.")
+                    return
+                
+                modal = {
+                    "type": "modal",
+                    "callback_id": "request_excuse_modal",
+                    "private_metadata": str(meeting_id),
+                    "title": {
+                        "type": "plain_text",
+                        "text": "Request Excuse"
+                    },
+                    "submit": {
+                        "type": "plain_text",
+                        "text": "Submit Request"
+                    },
+                    "close": {
+                        "type": "plain_text",
+                        "text": "Cancel"
+                    },
+                    "blocks": [
+                        {
+                            "type": "section",
+                            "text": {
+                                "type": "mrkdwn",
+                                "text": f"*Meeting:* {meeting.description}\n*Date:* {meeting.start_time.strftime('%m/%d/%Y %H:%M')} - {meeting.end_time.strftime('%H:%M')}"
+                            }
+                        },
+                        {
+                            "type": "divider"
+                        },
+                        {
+                            "type": "input",
+                            "block_id": "reason_block",
+                            "element": {
+                                "type": "plain_text_input",
+                                "action_id": "reason_input",
+                                "multiline": True,
+                                "placeholder": {
+                                    "type": "plain_text",
+                                    "text": "Please provide a reason for requesting an excuse"
+                                }
+                            },
+                            "label": {
+                                "type": "plain_text",
+                                "text": "Reason for Excuse"
+                            }
+                        }
+                    ]
+                }
+                
+                response = self.client.views_open(
+                    trigger_id=trigger_id,
+                    view=modal
+                )
+                return response
+                
+            except Exception as e:
+                logger.error(f"Error opening request excuse modal: {e}")
+                return None
+
+    def handle_request_excuse_modal_submission(self, user_id, meeting_id, reason):
+        """Handle request excuse modal submission"""
+        with self.app.app_context():
+            try:
+                user = User.query.filter_by(slack_user_id=user_id).first()
+                meeting = MeetingHour.query.get(meeting_id)
+                
+                if not user or not meeting:
+                    logger.error(f"User {user_id} or meeting {meeting_id} not found")
+                    return
+                
+                # Check if it's an outreach event (cannot be excused)
+                if meeting.meeting_type == 'outreach':
+                    self._send_direct_message(user_id, "❌ Outreach events cannot be excused. All outreach hours count toward your total.")
+                    return
+                
+                # Check if already has pending request
+                existing_request = ExcuseRequest.query.filter_by(
+                    user_id=user.id,
+                    meeting_hour_id=meeting_id,
+                    status='pending'
+                ).first()
+                
+                if existing_request:
+                    self._send_direct_message(user_id, f"❌ You already have a pending excuse request for: {meeting.description}")
+                    return
+                
+                # Check if already excused
+                existing_excuse = Excuse.query.filter_by(
+                    user_id=user.id,
+                    meeting_hour_id=meeting_id
+                ).first()
+                
+                if existing_excuse:
+                    self._send_direct_message(user_id, f"❌ You are already excused from: {meeting.description}")
+                    return
+                
+                # Create excuse request
+                excuse_request = ExcuseRequest(
+                    user_id=user.id,
+                    meeting_hour_id=meeting_id,
+                    reason=reason
+                )
+                
+                db.session.add(excuse_request)
+                db.session.commit()
+                
+                # Send success message
+                self._send_direct_message(user_id, f"✅ Excuse request submitted for: {meeting.description}\n📅 Date: {meeting.start_time.strftime('%Y-%m-%d %H:%M')}\n📝 Reason: {reason}\n\nAn admin will review your request.")
+                
+                # Refresh the App Home
+                self.update_app_home(user_id)
+                
+            except Exception as e:
+                logger.error(f"Error handling request excuse modal submission: {e}")
+                self._send_direct_message(user_id, "❌ An error occurred while submitting your excuse request.")
+
     def _send_direct_message(self, user_id, text):
         """Send a direct message to a user"""
         try:
