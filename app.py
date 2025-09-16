@@ -897,10 +897,13 @@ def delete_meeting(period_id, meeting_id):
 @app.route('/api/attendance', methods=['POST'])
 @login_required
 def log_attendance():
+    """Log attendance - supports both old hours format and new start/end time format"""
     data = request.get_json()
-    meeting_hour_id = data.get('meeting_hour_id')
+    meeting_hour_id = data.get('meeting_hour_id') or data.get('meeting_id')
     notes = data.get('notes', '')
     hours_attended = data.get('hours_attended')
+    start_time_str = data.get('start_time')
+    end_time_str = data.get('end_time')
     
     # Check if meeting hour exists and is valid
     meeting_hour = MeetingHour.query.get(meeting_hour_id)
@@ -916,39 +919,90 @@ def log_attendance():
     if existing_log:
         return jsonify({'error': 'Attendance already logged for this meeting'}), 400
     
-    # Validate hours_attended
-    if hours_attended is None:
-        return jsonify({'error': 'Hours attended is required'}), 400
-    
-    try:
-        hours_attended = float(hours_attended)
-        if hours_attended <= 0:
-            return jsonify({'error': 'Hours attended must be greater than 0'}), 400
-        
-        # Calculate total meeting hours
-        total_meeting_hours = (meeting_hour.end_time - meeting_hour.start_time).total_seconds() / 3600
-        if hours_attended > total_meeting_hours:
-            return jsonify({'error': f'Hours attended ({hours_attended}) cannot exceed total meeting hours ({total_meeting_hours:.2f})'}), 400
+    # Handle new start/end time format
+    if start_time_str and end_time_str:
+        try:
+            # Parse the time strings and combine with meeting date
+            meeting_date = meeting_hour.start_time.date()
+            start_time = datetime.combine(meeting_date, datetime.strptime(start_time_str, '%H:%M').time())
+            end_time = datetime.combine(meeting_date, datetime.strptime(end_time_str, '%H:%M').time())
             
-    except (ValueError, TypeError):
-        return jsonify({'error': 'Hours attended must be a valid number'}), 400
+            # Handle case where end time is next day (e.g., 23:00 to 01:00)
+            if end_time <= start_time:
+                end_time += timedelta(days=1)
+            
+            # Calculate hours attended
+            hours_attended = (end_time - start_time).total_seconds() / 3600
+            
+            if hours_attended <= 0:
+                return jsonify({'error': 'End time must be after start time'}), 400
+            
+            # Calculate total meeting hours
+            total_meeting_hours = (meeting_hour.end_time - meeting_hour.start_time).total_seconds() / 3600
+            
+            # For 0-hour meetings (bonus meetings), allow any amount of attendance
+            if total_meeting_hours == 0:
+                is_partial = False
+                partial_hours_value = hours_attended
+            else:
+                # For regular meetings, validate against meeting length
+                if hours_attended > total_meeting_hours:
+                    return jsonify({'error': f'Hours attended ({hours_attended:.2f}) cannot exceed total meeting hours ({total_meeting_hours:.2f})'}), 400
+                
+                # Determine if this is partial attendance
+                is_partial = hours_attended < total_meeting_hours
+                partial_hours_value = hours_attended if is_partial else None
+            
+            # Create attendance log with times
+            attendance_log = AttendanceLog(
+                user_id=current_user.id,
+                meeting_hour_id=meeting_hour_id,
+                notes=notes,
+                is_partial=is_partial,
+                partial_hours=partial_hours_value,
+                attendance_start_time=start_time,
+                attendance_end_time=end_time
+            )
+            
+        except (ValueError, TypeError) as e:
+            return jsonify({'error': f'Invalid time format: {str(e)}'}), 400
     
-    # Determine if this is partial attendance
-    is_partial = hours_attended < total_meeting_hours
+    # Handle old hours format (for backward compatibility)
+    elif hours_attended is not None:
+        try:
+            hours_attended = float(hours_attended)
+            if hours_attended <= 0:
+                return jsonify({'error': 'Hours attended must be greater than 0'}), 400
+            
+            # Calculate total meeting hours
+            total_meeting_hours = (meeting_hour.end_time - meeting_hour.start_time).total_seconds() / 3600
+            if hours_attended > total_meeting_hours:
+                return jsonify({'error': f'Hours attended ({hours_attended}) cannot exceed total meeting hours ({total_meeting_hours:.2f})'}), 400
+                
+        except (ValueError, TypeError):
+            return jsonify({'error': 'Hours attended must be a valid number'}), 400
+        
+        # Determine if this is partial attendance
+        is_partial = hours_attended < total_meeting_hours
+        
+        # Create attendance log (legacy format)
+        attendance_log = AttendanceLog(
+            user_id=current_user.id,
+            meeting_hour_id=meeting_hour_id,
+            notes=notes,
+            is_partial=is_partial,
+            partial_hours=hours_attended if is_partial else None,
+            attendance_start_time=meeting_hour.start_time,
+            attendance_end_time=meeting_hour.end_time
+        )
     
-    # Create attendance log
-    attendance_log = AttendanceLog(
-        user_id=current_user.id,
-        meeting_hour_id=meeting_hour_id,
-        notes=notes,
-        is_partial=is_partial,
-        partial_hours=hours_attended if is_partial else None
-    )
+    else:
+        return jsonify({'error': 'Either hours_attended or start_time/end_time are required'}), 400
     
     db.session.add(attendance_log)
     db.session.commit()
     
-    return jsonify({'message': 'Attendance logged successfully'})
+    return jsonify({'success': True, 'message': 'Attendance logged successfully'})
 
 @app.route('/api/edit_attendance', methods=['POST'])
 @login_required
