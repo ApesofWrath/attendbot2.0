@@ -155,46 +155,116 @@ def handle_slash_command(event):
 @app.route('/slack/interactive', methods=['POST'])
 def slack_interactive():
     """Handle Slack interactive components (buttons, modals, etc.)"""
-    payload = json.loads(request.form['payload'])
-    
-    # Handle different interaction types
-    if payload['type'] == 'block_actions':
-        handle_block_actions(payload)
-    elif payload['type'] == 'view_submission':
-        handle_view_submission(payload)
-    
-    return jsonify({'response_type': 'ephemeral'})
+    try:
+        # Log the incoming request for debugging
+        logger.info(f"Slack interactive endpoint called with method: {request.method}")
+        logger.info(f"Content-Type: {request.content_type}")
+        logger.info(f"Form data keys: {list(request.form.keys())}")
+        
+        # Parse the payload
+        if 'payload' not in request.form:
+            logger.error("No payload found in request form")
+            return jsonify({'error': 'No payload provided'}), 400
+        
+        payload = json.loads(request.form['payload'])
+        logger.info(f"Received payload type: {payload.get('type')}")
+        logger.info(f"Payload: {payload}")
+        
+        # Handle different interaction types
+        if payload['type'] == 'block_actions':
+            handle_block_actions(payload)
+        elif payload['type'] == 'view_submission':
+            handle_view_submission(payload)
+        else:
+            logger.warning(f"Unknown payload type: {payload['type']}")
+        
+        return jsonify({'response_type': 'ephemeral'})
+        
+    except Exception as e:
+        logger.error(f"Error in slack_interactive: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': 'Internal server error'}), 500
+
+@app.route('/slack/test-interactive', methods=['POST'])
+def test_interactive():
+    """Test endpoint for interactive components (for debugging)"""
+    try:
+        # Simulate a block actions payload
+        test_payload = {
+            'type': 'block_actions',
+            'user': {'id': 'U12345TEST'},
+            'trigger_id': 'test_trigger_123',
+            'actions': [
+                {
+                    'action_id': 'refresh_app_home',
+                    'value': None
+                }
+            ]
+        }
+        
+        logger.info("Testing interactive components with mock payload")
+        handle_block_actions(test_payload)
+        
+        return jsonify({
+            'status': 'success',
+            'message': 'Interactive components test completed. Check logs for details.'
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in test interactive: {e}")
+        return jsonify({'error': str(e)}), 500
 
 def handle_block_actions(payload):
     """Handle button clicks and other block actions"""
     try:
         user_id = payload['user']['id']
         actions = payload['actions']
+        trigger_id = payload.get('trigger_id')
+        
+        logger.info(f"Handling block actions for user {user_id}, trigger_id: {trigger_id}")
+        logger.info(f"Actions: {actions}")
+        
+        if not trigger_id:
+            logger.error("No trigger_id found in payload")
+            return
         
         for action in actions:
             action_id = action.get('action_id')
             value = action.get('value')
             
+            logger.info(f"Processing action: {action_id}")
+            
             # Handle different button actions
             if action_id.startswith('log_attendance_'):
                 meeting_id = action_id.replace('log_attendance_', '')
-                bot.open_log_attendance_modal(user_id, meeting_id, payload['trigger_id'])
+                logger.info(f"Opening log attendance modal for meeting {meeting_id}")
+                bot.open_log_attendance_modal(user_id, meeting_id, trigger_id)
             
             elif action_id.startswith('edit_attendance_'):
                 meeting_id = action_id.replace('edit_attendance_', '')
-                bot.open_edit_attendance_modal(user_id, meeting_id, payload['trigger_id'])
+                logger.info(f"Opening edit attendance modal for meeting {meeting_id}")
+                bot.open_edit_attendance_modal(user_id, meeting_id, trigger_id)
             
             elif action_id == 'add_regular_meeting':
-                bot.open_add_meeting_modal(user_id, 'regular', payload['trigger_id'])
+                logger.info("Opening add regular meeting modal")
+                bot.open_add_meeting_modal(user_id, 'regular', trigger_id)
             
             elif action_id == 'add_outreach_meeting':
-                bot.open_add_meeting_modal(user_id, 'outreach', payload['trigger_id'])
+                logger.info("Opening add outreach meeting modal")
+                bot.open_add_meeting_modal(user_id, 'outreach', trigger_id)
             
             elif action_id == 'refresh_app_home':
+                logger.info("Refreshing app home")
                 bot.update_app_home(user_id)
+            
+            else:
+                logger.warning(f"Unknown action_id: {action_id}")
                 
     except Exception as e:
         logger.error(f"Error handling block actions: {e}")
+        import traceback
+        traceback.print_exc()
 
 def handle_view_submission(payload):
     """Handle modal form submissions"""
