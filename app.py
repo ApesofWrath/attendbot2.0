@@ -1868,11 +1868,23 @@ def approve_excuse_request(request_id):
     excuse_request.reviewed_at = datetime.utcnow()
     excuse_request.admin_notes = admin_notes
     
+    meeting = excuse_request.meeting_hour
+
+    # Determine reporting period based on the meeting's start time
+    reporting_period = ReportingPeriod.query.filter(
+        ReportingPeriod.start_date <= meeting.start_time,
+        ReportingPeriod.end_date >= meeting.start_time
+    ).first()
+
+    if not reporting_period:
+        flash('No reporting period covers this meeting. Please create or adjust a reporting period before approving.', 'error')
+        return redirect(url_for('admin_excuse_requests'))
+
     # Create the actual excuse
     excuse = Excuse(
         user_id=excuse_request.user_id,
         meeting_hour_id=excuse_request.meeting_hour_id,
-        reporting_period_id=excuse_request.meeting_hour.reporting_period_id,
+        reporting_period_id=reporting_period.id,
         reason=excuse_request.reason,
         created_by=current_user.id,
         excuse_request_id=excuse_request.id
