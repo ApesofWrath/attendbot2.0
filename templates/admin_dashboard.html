@@ -51,13 +51,17 @@
             </div>
             <div class="card-body">
                 <div class="row text-center">
-                    <div class="col-6">
-                        <h4 class="text-primary">{{ periods|length }}</h4>
-                        <p class="text-muted">Reporting Periods</p>
+                    <div class="col-12 mb-3">
+                        <h4 class="text-primary">{{ all_periods_stats.unique_students_meeting_requirements }}</h4>
+                        <p class="text-muted">Unique Students Meeting Team Requirements</p>
                     </div>
-                    <div class="col-6">
-                        <h4 class="text-success">{{ periods|selectattr('start_date', 'le', now)|selectattr('end_date', 'ge', now)|list|length if periods else 0 }}</h4>
-                        <p class="text-muted">Active Periods</p>
+                    <div class="col-12 mb-3">
+                        <h4 class="text-success">{{ all_periods_stats.total_attendance_person_hours }}h</h4>
+                        <p class="text-muted">Total Meeting Attendance Person-Hours</p>
+                    </div>
+                    <div class="col-12">
+                        <h4 class="text-info">{{ all_periods_stats.total_outreach_person_hours }}h</h4>
+                        <p class="text-muted">Total Outreach Person-Hours</p>
                     </div>
                 </div>
             </div>
@@ -81,6 +85,9 @@
                                 <th>Start Date</th>
                                 <th>End Date</th>
                                 <th>Status</th>
+                                <th>Students Meeting Requirements</th>
+                                <th>Attendance Person-Hours</th>
+                                <th>Outreach Person-Hours</th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
@@ -97,6 +104,27 @@
                                         <span class="badge bg-warning">Upcoming</span>
                                     {% else %}
                                         <span class="badge bg-secondary">Completed</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if period_stats[period.id] %}
+                                        {{ period_stats[period.id].students_meeting_requirements }}
+                                    {% else %}
+                                        0
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if period_stats[period.id] %}
+                                        {{ period_stats[period.id].attendance_person_hours }}h
+                                    {% else %}
+                                        0h
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if period_stats[period.id] %}
+                                        {{ period_stats[period.id].outreach_person_hours }}h
+                                    {% else %}
+                                        0h
                                     {% endif %}
                                 </td>
                                 <td>

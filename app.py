@@ -289,6 +289,126 @@ def dashboard():
                          user_attendance=user_attendance,
                          meeting_details=meeting_details)
 
+def get_all_periods_statistics():
+    """Calculate statistics across all reporting periods"""
+    all_periods = ReportingPeriod.query.all()
+    all_users = User.query.all()
+    
+    # Track unique students who meet team requirements (across all periods)
+    students_meeting_requirements = set()
+    
+    # Track total person-hours
+    total_attendance_person_hours = 0.0
+    total_outreach_person_hours = 0.0
+    
+    # Process each period
+    for period in all_periods:
+        # Get all regular meetings in this period
+        regular_meetings = MeetingHour.query.filter(
+            MeetingHour.start_time >= period.start_date,
+            MeetingHour.start_time <= period.end_date,
+            MeetingHour.meeting_type == 'regular'
+        ).all()
+        
+        # Get all outreach meetings in this period
+        outreach_meetings = MeetingHour.query.filter(
+            MeetingHour.start_time >= period.start_date,
+            MeetingHour.start_time <= period.end_date,
+            MeetingHour.meeting_type == 'outreach'
+        ).all()
+        
+        # Calculate person-hours for regular meetings (attendance)
+        for meeting in regular_meetings:
+            attendance_logs = AttendanceLog.query.filter_by(meeting_hour_id=meeting.id).all()
+            for log in attendance_logs:
+                if log.partial_hours is not None:
+                    total_attendance_person_hours += log.partial_hours
+                else:
+                    total_attendance_person_hours += (meeting.end_time - meeting.start_time).total_seconds() / 3600
+        
+        # Calculate person-hours for outreach meetings
+        for meeting in outreach_meetings:
+            attendance_logs = AttendanceLog.query.filter_by(meeting_hour_id=meeting.id).all()
+            for log in attendance_logs:
+                if log.partial_hours is not None:
+                    total_outreach_person_hours += log.partial_hours
+                else:
+                    total_outreach_person_hours += (meeting.end_time - meeting.start_time).total_seconds() / 3600
+        
+        # Check which users meet team requirements in this period
+        for user in all_users:
+            user_data = get_user_attendance_data(user.id, period.id)
+            if user_data and user_data['regular_meetings']['meets_team_requirement']:
+                students_meeting_requirements.add(user.id)
+    
+    return {
+        'unique_students_meeting_requirements': len(students_meeting_requirements),
+        'total_attendance_person_hours': round(total_attendance_person_hours, 2),
+        'total_outreach_person_hours': round(total_outreach_person_hours, 2)
+    }
+
+def get_period_statistics(period_id):
+    """Calculate statistics for a specific reporting period"""
+    period = ReportingPeriod.query.get(period_id)
+    if not period:
+        return None
+    
+    # Get all users
+    all_users = User.query.all()
+    
+    # Count students meeting team requirements (regular meeting attendance >= 60%)
+    students_meeting_requirements = 0
+    
+    # Calculate person-hours for regular meetings (attendance)
+    attendance_person_hours = 0.0
+    
+    # Calculate person-hours for outreach meetings
+    outreach_person_hours = 0.0
+    
+    # Get all regular meetings in this period
+    regular_meetings = MeetingHour.query.filter(
+        MeetingHour.start_time >= period.start_date,
+        MeetingHour.start_time <= period.end_date,
+        MeetingHour.meeting_type == 'regular'
+    ).all()
+    
+    # Get all outreach meetings in this period
+    outreach_meetings = MeetingHour.query.filter(
+        MeetingHour.start_time >= period.start_date,
+        MeetingHour.start_time <= period.end_date,
+        MeetingHour.meeting_type == 'outreach'
+    ).all()
+    
+    # Calculate person-hours for regular meetings
+    for meeting in regular_meetings:
+        attendance_logs = AttendanceLog.query.filter_by(meeting_hour_id=meeting.id).all()
+        for log in attendance_logs:
+            if log.partial_hours is not None:
+                attendance_person_hours += log.partial_hours
+            else:
+                attendance_person_hours += (meeting.end_time - meeting.start_time).total_seconds() / 3600
+    
+    # Calculate person-hours for outreach meetings
+    for meeting in outreach_meetings:
+        attendance_logs = AttendanceLog.query.filter_by(meeting_hour_id=meeting.id).all()
+        for log in attendance_logs:
+            if log.partial_hours is not None:
+                outreach_person_hours += log.partial_hours
+            else:
+                outreach_person_hours += (meeting.end_time - meeting.start_time).total_seconds() / 3600
+    
+    # Count students meeting team requirements
+    for user in all_users:
+        user_data = get_user_attendance_data(user.id, period_id)
+        if user_data and user_data['regular_meetings']['meets_team_requirement']:
+            students_meeting_requirements += 1
+    
+    return {
+        'students_meeting_requirements': students_meeting_requirements,
+        'attendance_person_hours': round(attendance_person_hours, 2),
+        'outreach_person_hours': round(outreach_person_hours, 2)
+    }
+
 @app.route('/admin')
 @login_required
 def admin_dashboard():
@@ -299,7 +419,21 @@ def admin_dashboard():
     periods = ReportingPeriod.query.order_by(ReportingPeriod.start_date.desc()).all()
     users = User.query.order_by(User.created_at.desc()).all()
     now = datetime.utcnow()
-    return render_template('admin_dashboard.html', periods=periods, users=users, now=now)
+    
+    # Calculate statistics across all periods
+    all_periods_stats = get_all_periods_statistics()
+    
+    # Calculate statistics for each period
+    period_stats = {}
+    for period in periods:
+        period_stats[period.id] = get_period_statistics(period.id)
+    
+    return render_template('admin_dashboard.html', 
+                         periods=periods, 
+                         users=users, 
+                         now=now,
+                         all_periods_stats=all_periods_stats,
+                         period_stats=period_stats)
 
 @app.route('/admin/period/<int:period_id>/delete', methods=['POST'])
 @login_required
