@@ -927,8 +927,9 @@ def log_attendance():
             start_time = datetime.combine(meeting_date, datetime.strptime(start_time_str, '%H:%M').time())
             end_time = datetime.combine(meeting_date, datetime.strptime(end_time_str, '%H:%M').time())
             
-            # Handle case where end time is next day (e.g., 23:00 to 01:00)
-            if end_time <= start_time:
+            # Handle case where end time is next day (e.g., 23:00 to 01:00).
+            # If the times are exactly equal, treat this as 0h (invalid) rather than 24h.
+            if end_time < start_time:
                 end_time += timedelta(days=1)
             
             # Calculate hours attended
@@ -1038,8 +1039,9 @@ def edit_attendance():
         start_time = datetime.combine(meeting_date, datetime.strptime(start_time_str, '%H:%M').time())
         end_time = datetime.combine(meeting_date, datetime.strptime(end_time_str, '%H:%M').time())
         
-        # Handle case where end time is next day (e.g., 23:00 to 01:00)
-        if end_time <= start_time:
+        # Handle case where end time is next day (e.g., 23:00 to 01:00).
+        # If the times are exactly equal, treat this as 0h (invalid) rather than 24h.
+        if end_time < start_time:
             end_time += timedelta(days=1)
         
         # Calculate hours attended
