@@ -261,6 +261,13 @@ def dashboard():
                 status = 'excused'
                 attendance_start_time = None
                 attendance_end_time = None
+            elif meeting.start_time == meeting.end_time:
+                hours_attended = 0
+                is_partial = False
+                notes = None
+                status = 'optional'
+                attendance_start_time = None
+                attendance_end_time = None
             else:
                 hours_attended = 0
                 is_partial = False
