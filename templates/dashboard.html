@@ -184,6 +184,8 @@
                                                     <span class="badge bg-warning">{{ detail.hours_attended }}h ({{ detail.attendance_percentage }}%)</span>
                                                 {% elif detail.status == 'excused' %}
                                                     <span class="badge bg-info">Excused</span>
+                                                {% elif detail.status == 'optional' %}
+                                                    <span class="badge bg-secondary">Optional</span>
                                                 {% else %}
                                                     <span class="badge bg-danger">Absent</span>
                                                 {% endif %}
@@ -195,6 +197,8 @@
                                                     <i class="fas fa-clock text-warning"></i> Partial
                                                 {% elif detail.status == 'excused' %}
                                                     <i class="fas fa-user-clock text-info"></i> Excused
+                                                {% elif detail.status == 'optional' %}
+                                                    <i class="fas fa-door-open text-secondary"></i> Optional
                                                 {% else %}
                                                     <i class="fas fa-times-circle text-danger"></i> Absent
                                                 {% endif %}
@@ -211,7 +215,7 @@
                                                     <button class="btn btn-sm btn-outline-primary" onclick="editAttendance({{ detail.meeting.id }}, '{{ detail.notes or '' }}', '{{ detail.meeting.start_time.strftime('%Y-%m-%d') }}', '{{ detail.meeting.start_time.strftime('%H:%M') }}', '{{ detail.meeting.end_time.strftime('%H:%M') }}', '{{ detail.attendance_start_time.strftime('%H:%M') if detail.attendance_start_time else detail.meeting.start_time.strftime('%H:%M') }}', '{{ detail.attendance_end_time.strftime('%H:%M') if detail.attendance_end_time else detail.meeting.end_time.strftime('%H:%M') }}')">
                                                         <i class="fas fa-edit"></i> Edit
                                                     </button>
-                                                {% elif detail.status == 'absent' %}
+                                                {% elif detail.status == 'absent' or detail.status == 'optional' %}
                                                     <button class="btn btn-sm btn-success" onclick="logAttendance({{ detail.meeting.id }}, '{{ detail.meeting.start_time.strftime('%Y-%m-%d') }}', '{{ detail.meeting.start_time.strftime('%H:%M') }}', '{{ detail.meeting.end_time.strftime('%H:%M') }}')">
                                                         <i class="fas fa-plus"></i> Log Attendance
                                                     </button>
@@ -288,7 +292,7 @@
                                                     <button class="btn btn-sm btn-outline-primary" onclick="editAttendance({{ detail.meeting.id }}, '{{ detail.notes or '' }}', '{{ detail.meeting.start_time.strftime('%Y-%m-%d') }}', '{{ detail.meeting.start_time.strftime('%H:%M') }}', '{{ detail.meeting.end_time.strftime('%H:%M') }}', '{{ detail.attendance_start_time.strftime('%H:%M') if detail.attendance_start_time else detail.meeting.start_time.strftime('%H:%M') }}', '{{ detail.attendance_end_time.strftime('%H:%M') if detail.attendance_end_time else detail.meeting.end_time.strftime('%H:%M') }}')">
                                                         <i class="fas fa-edit"></i> Edit
                                                     </button>
-                                                {% elif detail.status == 'absent' %}
+                                                {% elif detail.status == 'absent' or detail.status == 'optional' %}
                                                     <button class="btn btn-sm btn-success" onclick="logAttendance({{ detail.meeting.id }}, '{{ detail.meeting.start_time.strftime('%Y-%m-%d') }}', '{{ detail.meeting.start_time.strftime('%H:%M') }}', '{{ detail.meeting.end_time.strftime('%H:%M') }}')">
                                                         <i class="fas fa-plus"></i> Log Attendance
                                                     </button>
